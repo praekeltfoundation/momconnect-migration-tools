@@ -36,8 +36,16 @@ class NDOHControl(Database):
         )
         statement = select([self.subscription, self.registration])\
             .select_from(join_condition)\
-            .where(self.subscription.c.active == true())
-        statement = statement.order_by(self.subscription.c.id)
+
+        where_clause = (self.subscription.c.active == true())
+        if start_id is not None:
+            where_clause = where_clause & (self.subscription.c.id >= start_id)
+        if end_id is not None:
+            where_clause = where_clause & (self.subscription.c.id <= end_id)
+
+        statement = statement.where(where_clause)\
+            .order_by(self.subscription.c.id)
+
         if limit is not None:
             statement = statement.limit(limit)
         return self.connection.execute(statement)
