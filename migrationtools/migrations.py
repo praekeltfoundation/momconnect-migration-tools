@@ -1,4 +1,3 @@
-from profilehooks import profile
 from . import databases
 
 
@@ -12,21 +11,20 @@ class Migrator(object):
         self.config = config
         self.debug = debug
         try:
-            self.ndoh = databases.NDOHControl(
+            self.ndoh_control = databases.NDOHControl(
                 self.config.DATABASES['ndoh-control'])
+            self.ndoh_hub = databases.NDOHHub(
+                self.config.DATABASES['ndoh-hub'])
+            self.seed_identity = databases.SeedIdentity(
+                self.config.DATABASES['seed-identity-store'])
+            self.seed_sbm = databases.SeedSBM(
+                self.config.DATABASES['seed-stage-based-messaging'])
+            self.seed_scheduler = databases.SeedScheduler(
+                self.config.DATABASES['seed-scheduler'])
         except AttributeError:
             raise ImproperlyConfigured("Invalid or missing database configs.")
 
-    @profile
-    def migrate_subscriptions(self, start_id=None, end_id=None, limit=None):
-        subscriptions = self.ndoh.get_subscriptions(start_id, end_id, limit)
-        for subscription in subscriptions:
-            # Create Seed Identity
-            # - lookup subscription.user_account in Vumi contact DB
-            # - consolidate data and save Identity
-            # Link to existing message set from old message set
-            # Create Seed Subscription
-            # Transform current schedule format to Seed format
-            # Create Seed Schedule
-            # click.echo(subscription)
-            pass
+    def full_migration(self):
+        # Migrate registrations
+        # Migrate subscriptions
+        pass

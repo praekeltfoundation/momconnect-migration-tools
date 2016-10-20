@@ -1,6 +1,4 @@
 from sqlalchemy import create_engine, MetaData
-from sqlalchemy.sql import select
-from sqlalchemy.sql.expression import true
 
 
 class Database(object):
@@ -28,24 +26,32 @@ class NDOHControl(Database):
     def _setup_tables(self, meta):
         self.subscription = meta.tables['subscription_subscription']
         self.registration = meta.tables['registration_registration']
+        self.messageset = meta.tables['subscription_messageset']
+        self.crontabschedule = meta.tables['djcelery_crontabschedule']
+        self.periodtask = meta.tables['djcelery_periodictask']
 
-    def get_subscriptions(self, start_id=None, end_id=None, limit=None):
-        join_condition = self.subscription.outerjoin(
-            self.registration,
-            self.subscription.c.to_addr == self.registration.c.mom_msisdn
-        )
-        statement = select([self.subscription, self.registration])\
-            .select_from(join_condition)\
 
-        where_clause = (self.subscription.c.active == true())
-        if start_id is not None:
-            where_clause = where_clause & (self.subscription.c.id >= start_id)
-        if end_id is not None:
-            where_clause = where_clause & (self.subscription.c.id <= end_id)
+class NDOHHub(Database):
 
-        statement = statement.where(where_clause)\
-            .order_by(self.subscription.c.id)
+    def _setup_tables(self, meta):
+        self.source = meta.tables['registrations_source']
+        self.registration = meta.tables['registrations_registration']
 
-        if limit is not None:
-            statement = statement.limit(limit)
-        return self.connection.execute(statement)
+
+class SeedIdentity(Database):
+
+    def _setup_tables(self, meta):
+        self.identity = meta.tables['identities_identity']
+
+
+class SeedSBM(Database):
+
+    def _setup_tables(self, meta):
+        self.subscription = meta.tables['subscriptions_subscription']
+        self.messageset = meta.tables['contentstore_messageset']
+
+
+class SeedScheduler(Database):
+
+    def _setup_tables(self, meta):
+        self.schedule = meta.tables['scheduler_schedule']

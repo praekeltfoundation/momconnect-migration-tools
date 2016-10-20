@@ -56,17 +56,10 @@ def cli(ctx, config_file, debug):
 
 
 @cli.command(short_help="Migrate old records to Seed.")
-@click.argument('start_id', required=False)
-@click.argument('end_id', required=False)
-@click.option('--limit', default=None, type=click.INT,
-              help="The total number of records to limit this migration to.")
 @pass_context
-def migrate(ctx, limit, start_id, end_id):
+def migrate(ctx):
     """This command goes through existing subscription records in the
-    ndoh-control database and migrates them to the Seed services. It takes two
-    optional arguments START_ID and END_ID which are integer IDs in the
-    subscriptions table of the ndoh-control database to start the migration
-    from.
+    ndoh-control database and migrates them to the Seed services.
     """
     migrator = migrations.Migrator(ctx.config, debug=ctx.debug)
-    migrator.migrate_subscriptions(start_id, end_id, limit)
+    migrator.full_migration()
