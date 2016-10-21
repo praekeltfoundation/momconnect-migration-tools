@@ -1,13 +1,21 @@
+import json
+import uuid
+
+from django.core.serializers.json import DjangoJSONEncoder
 from sqlalchemy import create_engine, MetaData
 from sqlalchemy.sql import select
 from sqlalchemy.sql.expression import null
+
+
+def json_serializer(obj):
+    return json.dumps(obj, cls=DjangoJSONEncoder)
 
 
 class Database(object):
 
     def __init__(self, db_url):
         self.db_url = db_url
-        self.engine = create_engine(self.db_url)
+        self.engine = create_engine(self.db_url, json_serializer=json_serializer)
         self._connection = None
         self.meta = MetaData()
         self.meta.reflect(bind=self.engine)
@@ -96,14 +104,11 @@ class SeedIdentity(Database):
         }
 
     def create_identity(self, details, operator, created_at, updated_at, created_by, updated_by):
-        # version
-        # communicate_through
-        # operator
-        # created_at
-        # updated_at
-        # created_by
-        # updated_by
-        pass
+        uid = str(uuid.uuid4())
+        statement = self.identity.insert().values(
+            id=uid, details=details, version=1, communicate_through_id=None, operator_id=operator,
+            created_at=created_at, updated_at=updated_at, created_by_id=created_by, updated_by_id=updated_by)
+        return self.connection.execute(statement).inserted_primary_key
 
 
 class SeedSBM(Database):

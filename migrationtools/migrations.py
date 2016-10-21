@@ -1,6 +1,6 @@
 import click
 
-# from profilehooks import profile
+from profilehooks import profile
 
 from . import databases
 
@@ -44,6 +44,7 @@ class Migrator(object):
         except AttributeError:
             raise ImproperlyConfigured("Invalid or missing database configs.")
 
+    @profile
     def migrate_registrations(self):
         for registration in self.ndoh_control.get_registrations():
             # Check for existing Seed Identity for mom_msisdn:
