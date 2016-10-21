@@ -1,11 +1,28 @@
 import click
-from profilehooks import profile
+
+# from profilehooks import profile
 
 from . import databases
 
 
 class ImproperlyConfigured(Exception):
     """Raised when a required config option is missing or misconfigured."""
+
+
+def transform_language_code(lang):
+    return {
+        "zu": "zul_ZA",
+        "xh": "xho_ZA",
+        "af": "afr_ZA",
+        "en": "eng_ZA",
+        "nso": "nso_ZA",
+        "tn": "tsn_ZA",
+        "st": "sot_ZA",
+        "ts": "tso_ZA",
+        "ss": "ssw_ZA",
+        "ve": "ven_ZA",
+        "nr": "nbl_ZA"
+    }[lang]
 
 
 class Migrator(object):
@@ -27,16 +44,15 @@ class Migrator(object):
         except AttributeError:
             raise ImproperlyConfigured("Invalid or missing database configs.")
 
-    @profile
     def migrate_registrations(self):
         for registration in self.ndoh_control.get_registrations():
             # Check for existing Seed Identity for mom_msisdn:
             mom_msisdn = registration[self.ndoh_control.registration.c.mom_msisdn]
             identity = self.seed_identity.lookup_identity_with_msdisdn(mom_msisdn)
-            if identity is not None:
+            if identity is None:
                 # No existing Identity, so create it.
-                lang = registration[self.ndoh_control.registration.c.mom_lang]
-                source = registration[self.ndoh_control.registration.c.source_id]
+                lang = transform_language_code(registration[self.ndoh_control.registration.c.mom_lang])
+                source = registration[self.ndoh_control.registration.c.authority]
                 details = self.seed_identity.create_identity_details(
                     mom_msisdn, lang, registration[self.ndoh_control.registration.c.consent],
                     registration[self.ndoh_control.registration.c.mom_id_no],
@@ -45,8 +61,9 @@ class Migrator(object):
                 identity = self.seed_identity.create_identity(
                     details, None, registration[self.ndoh_control.registration.c.created_at],
                     registration[self.ndoh_control.registration.c.updated_at], None, None)
-
-                click.echo(identity)
+            else:
+                # Check fields and update if necessary.
+                pass
 
             # Create ndoh-hub Registration.
 
