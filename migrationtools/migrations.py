@@ -78,7 +78,7 @@ class Migrator(object):
             # TODO: Query the Vumi Go contact for this msisdn to get more details.
 
             reg_id = registration[reg_cols.id]
-            self.echo('Starting migration of {id} ...'.format(id=reg_id), nl=False)
+            self.echo("Starting migration of {id} ...".format(id=reg_id), nl=False)
             mom_msisdn = registration[reg_cols.mom_msisdn]
             hcw_msisdn = registration[reg_cols.hcw_msisdn]
             lang = transform_language_code(registration[reg_cols.mom_lang])
@@ -89,27 +89,47 @@ class Migrator(object):
 
             # Get or create Seed Identity for the hcw_msisdn:
             if hcw_msisdn is not None:
-                hcw_identity, hcw_created = self.get_or_create_identity(hcw_msisdn, role='hcw')
+                try:
+                    hcw_identity, hcw_created = self.get_or_create_identity(hcw_msisdn, role='hcw')
+                except databases.DatabaseError as error:
+                    self.echo(" Failed")
+                    self.echo("Failed to get/create Seed Identity for HCW due to a database error:", err=True)
+                    self.echo(error.message, err=True)
+                    break
+
                 operator_id = hcw_identity[ident_cols.id]
             else:
                 operator_id = None
 
             # Get or create Seed Identity for the mom_msisdn:
-            identity, created = self.get_or_create_identity(
-                mom_msisdn, lang_code=lang, consent=consent, sa_id_no=registration[reg_cols.mom_id_no],
-                mom_dob=registration[reg_cols.mom_dob], source=source,  last_mc_reg_on=source,
-                operator_id=operator_id, created_at=registration[reg_cols.created_at],
-                updated_at=registration[reg_cols.updated_at])
+            try:
+                identity, created = self.get_or_create_identity(
+                    mom_msisdn, lang_code=lang, consent=consent, sa_id_no=registration[reg_cols.mom_id_no],
+                    mom_dob=registration[reg_cols.mom_dob], source=source,  last_mc_reg_on=source,
+                    operator_id=operator_id, created_at=registration[reg_cols.created_at],
+                    updated_at=registration[reg_cols.updated_at])
+            except databases.DatabaseError as error:
+                self.echo(" Failed")
+                self.echo("Failed to get/create Seed Identity for Mom due to a database error:", err=True)
+                self.echo(error.message, err=True)
+                break
+
             if not created:
                 # Update the details.
                 current_details = identity[ident_cols.details]
-                self.seed_identity.update_identity_details(
-                        current_details=current_details, lang_code=lang, consent=consent,
-                        sa_id_no=registration[reg_cols.mom_id_no],
-                        mom_dob=registration[reg_cols.mom_dob], source=source, last_mc_reg_on=source)
+                try:
+                    self.seed_identity.update_identity_details(
+                            current_details=current_details, lang_code=lang, consent=consent,
+                            sa_id_no=registration[reg_cols.mom_id_no],
+                            mom_dob=registration[reg_cols.mom_dob], source=source, last_mc_reg_on=source)
+                except databases.DatabaseError as error:
+                    self.echo(" Failed")
+                    self.echo("Failed to update Seed Identity for Mom due to a database error:", err=True)
+                    self.echo(error.message, err=True)
+                    break
 
             # Create ndoh-hub Registration.
-            self.echo(' Completed')
+            self.echo(" Completed")
 
     def full_migration(self, limit=None):
         # Migrate registrations

@@ -100,14 +100,14 @@ class SeedIdentity(Database):
     def lookup_identity(self, uid):
         statement = select([self.identity])\
             .where(self.identity.c.id == uid)
-        return self.connection.execute(statement).fetchone()
+        return self.execute(statement).fetchone()
 
     def lookup_identity_with_msdisdn(self, msisdn, role):
         statement = select([self.identity])\
             .where(
                 (self.identity.c.details[('addresses', 'msisdn', msisdn)] != null())
                 & (self.identity.c.details['role'].astext == role))
-        return self.connection.execute(statement).fetchone()
+        return self.execute(statement).fetchone()
 
     def create_identity_details(self, msisdn, role, lang_code, consent, sa_id_no, mom_dob, source, last_mc_reg_on):
         details = {
@@ -150,7 +150,7 @@ class SeedIdentity(Database):
                 id=uid, details=details, version=1, communicate_through_id=None,
                 operator_id=operator_id, created_at=created_at, updated_at=updated_at,
                 created_by_id=self.created_by_id, updated_by_id=self.updated_by_id)
-        return self.connection.execute(statement).inserted_primary_key[0]
+        return self.execute(statement).inserted_primary_key[0]
 
     def update_identity(self, uid, details, updated_at=None):
         statement = self.identity.update()\
