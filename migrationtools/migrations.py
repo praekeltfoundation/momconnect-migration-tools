@@ -1,6 +1,4 @@
-import click
-
-from profilehooks import profile
+from datetime import datetime
 
 from . import databases
 
@@ -27,8 +25,9 @@ def transform_language_code(lang):
 
 class Migrator(object):
 
-    def __init__(self, config, debug=False):
+    def __init__(self, config, echo, debug=False):
         self.config = config
+        self.echo = echo
         self.debug = debug
         try:
             self.ndoh_control = databases.NDOHControl(
@@ -44,32 +43,76 @@ class Migrator(object):
         except AttributeError:
             raise ImproperlyConfigured("Invalid or missing database configs.")
 
-    @profile
-    def migrate_registrations(self):
-        for registration in self.ndoh_control.get_registrations():
-            # Check for existing Seed Identity for mom_msisdn:
-            mom_msisdn = registration[self.ndoh_control.registration.c.mom_msisdn]
-            identity = self.seed_identity.lookup_identity_with_msdisdn(mom_msisdn)
-            if identity is None:
-                # No existing Identity, so create it.
-                lang = transform_language_code(registration[self.ndoh_control.registration.c.mom_lang])
-                source = registration[self.ndoh_control.registration.c.authority]
-                details = self.seed_identity.create_identity_details(
-                    mom_msisdn, lang, registration[self.ndoh_control.registration.c.consent],
-                    registration[self.ndoh_control.registration.c.mom_id_no],
-                    registration[self.ndoh_control.registration.c.mom_dob],
-                    source, source)
-                identity = self.seed_identity.create_identity(
-                    details, None, registration[self.ndoh_control.registration.c.created_at],
-                    registration[self.ndoh_control.registration.c.updated_at], None, None)
+    def get_or_create_identity(
+                self, msisdn, role='mom', lang_code=None, consent=None,
+                sa_id_no=None, mom_dob=None, source=None, last_mc_reg_on=None,
+                operator_id=None, created_at=None, updated_at=None):
+        identity = self.seed_identity.lookup_identity_with_msdisdn(msisdn, role)
+
+        if identity is not None:
+            return identity, False
+
+        else:
+            # No existing Identity, so create it.
+            details = self.seed_identity.create_identity_details(
+                msisdn=msisdn, role=role, lang_code=lang_code,
+                consent=consent, sa_id_no=sa_id_no, mom_dob=mom_dob,
+                source=source, last_mc_reg_on=source)
+
+            if created_at is None:
+                created_at = datetime.utcnow()
+            if updated_at is None:
+                updated_at = datetime.utcnow()
+            identity_id = self.seed_identity.create_identity(
+                details=details, operator_id=operator_id, created_at=created_at,
+                updated_at=updated_at)
+            identity = self.seed_identity.lookup_identity(identity_id)
+            return identity, True
+
+    def migrate_registrations(self, limit=None):
+        for registration in self.ndoh_control.get_registrations(limit=limit):
+            # Use these shortcuts to make the code a bit more readable.
+            reg_cols = self.ndoh_control.registration.c
+            ident_cols = self.seed_identity.identity.c
+
+            # TODO: Query the Vumi Go contact for this msisdn to get more details.
+
+            reg_id = registration[reg_cols.id]
+            self.echo('Starting migration of {id} ...'.format(id=reg_id), nl=False)
+            mom_msisdn = registration[reg_cols.mom_msisdn]
+            hcw_msisdn = registration[reg_cols.hcw_msisdn]
+            lang = transform_language_code(registration[reg_cols.mom_lang])
+            source = registration[reg_cols.authority]
+            consent = registration[reg_cols.consent]
+            if consent is None:
+                consent = False
+
+            # Get or create Seed Identity for the hcw_msisdn:
+            if hcw_msisdn is not None:
+                hcw_identity, hcw_created = self.get_or_create_identity(hcw_msisdn, role='hcw')
+                operator_id = hcw_identity[ident_cols.id]
             else:
-                # Check fields and update if necessary.
-                pass
+                operator_id = None
+
+            # Get or create Seed Identity for the mom_msisdn:
+            identity, created = self.get_or_create_identity(
+                mom_msisdn, lang_code=lang, consent=consent, sa_id_no=registration[reg_cols.mom_id_no],
+                mom_dob=registration[reg_cols.mom_dob], source=source,  last_mc_reg_on=source,
+                operator_id=operator_id, created_at=registration[reg_cols.created_at],
+                updated_at=registration[reg_cols.updated_at])
+            if not created:
+                # Update the details.
+                current_details = identity[ident_cols.details]
+                self.seed_identity.update_identity_details(
+                        current_details=current_details, lang_code=lang, consent=consent,
+                        sa_id_no=registration[reg_cols.mom_id_no],
+                        mom_dob=registration[reg_cols.mom_dob], source=source, last_mc_reg_on=source)
 
             # Create ndoh-hub Registration.
+            self.echo(' Completed')
 
-    def full_migration(self):
+    def full_migration(self, limit=None):
         # Migrate registrations
-        self.migrate_registrations()
+        self.migrate_registrations(limit=10)
         # Migrate subscriptions
         # Migrate nurseconnect

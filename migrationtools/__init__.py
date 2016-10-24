@@ -61,5 +61,5 @@ def migrate(ctx):
     """This command goes through existing subscription records in the
     ndoh-control database and migrates them to the Seed services.
     """
-    migrator = migrations.Migrator(ctx.config, debug=ctx.debug)
+    migrator = migrations.Migrator(ctx.config, echo=click.echo, debug=ctx.debug)
     migrator.full_migration()

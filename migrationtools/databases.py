@@ -3,12 +3,17 @@ import uuid
 
 from django.core.serializers.json import DjangoJSONEncoder
 from sqlalchemy import create_engine, MetaData
+from sqlalchemy.exc import StatementError, IntegrityError, DataError
 from sqlalchemy.sql import select
 from sqlalchemy.sql.expression import null
 
 
 def json_serializer(obj):
     return json.dumps(obj, cls=DjangoJSONEncoder)
+
+
+class DatabaseError(Exception):
+    """Raised when an SQL level error occurs."""
 
 
 class Database(object):
@@ -29,6 +34,12 @@ class Database(object):
         if self._connection is None:
             self._connection = self.engine.connect()
         return self._connection
+
+    def execute(self, statement):
+        try:
+            return self.connection.execute(statement)
+        except (StatementError, IntegrityError, DataError) as error:
+            raise DatabaseError(error.message)
 
 
 class NDOHControl(Database):
@@ -78,37 +89,74 @@ class NDOHHub(Database):
 
 class SeedIdentity(Database):
 
+    # The ID of the account to create records as
+    created_by_id = 1
+    # The ID of the account to update records as
+    updated_by_id = 1
+
     def _setup_tables(self, meta):
         self.identity = meta.tables['identities_identity']
 
-    def lookup_identity_with_msdisdn(self, msisdn):
+    def lookup_identity(self, uid):
         statement = select([self.identity])\
-            .where(self.identity.c.details[('addresses', 'msisdn', msisdn)]
-                   != null())
+            .where(self.identity.c.id == uid)
         return self.connection.execute(statement).fetchone()
 
-    def create_identity_details(self, msisdn, lang_code, consent, sa_id_no, mom_dob, source, last_mc_reg_on):
-        return {
+    def lookup_identity_with_msdisdn(self, msisdn, role):
+        statement = select([self.identity])\
+            .where(
+                (self.identity.c.details[('addresses', 'msisdn', msisdn)] != null())
+                & (self.identity.c.details['role'].astext == role))
+        return self.connection.execute(statement).fetchone()
+
+    def create_identity_details(self, msisdn, role, lang_code, consent, sa_id_no, mom_dob, source, last_mc_reg_on):
+        details = {
             'default_addr_type': 'msisdn',
             'addresses': {
                 'msisdn': {
                     msisdn: {'default': True}
                 }
             },
-            'lang_code': lang_code,
-            'consent': consent,
-            'sa_id_no': sa_id_no,
-            'mom_dob': mom_dob,
-            'source': source,
-            'last_mc_reg_on': last_mc_reg_on
+            'role': role
         }
+        if lang_code is not None:
+            details['lang_code'] = lang_code
+        if consent is not None:
+            details['consent'] = consent
+        if sa_id_no is not None:
+            details['sa_id_no'] = sa_id_no
+        if mom_dob is not None:
+            details['mom_dob'] = mom_dob
+        if source is not None:
+            details['source'] = source
+        if last_mc_reg_on is not None:
+            details['last_mc_reg_on'] = last_mc_reg_on
 
-    def create_identity(self, details, operator, created_at, updated_at, created_by, updated_by):
+        return details
+
+    def update_identity_details(self, current_details, lang_code, consent, sa_id_no, mom_dob, source, last_mc_reg_on):
+        """Mutates the given dictionary `current_details` with the other values provided."""
+        current_details['lang_code'] = lang_code
+        current_details['consent'] = consent
+        current_details['sa_id_no'] = sa_id_no
+        current_details['mom_dob'] = mom_dob
+        current_details['source'] = source
+        current_details['last_ms_reg_on'] = last_mc_reg_on
+
+    def create_identity(self, details, operator_id, created_at, updated_at):
         uid = str(uuid.uuid4())
-        statement = self.identity.insert().values(
-            id=uid, details=details, version=1, communicate_through_id=None, operator_id=operator,
-            created_at=created_at, updated_at=updated_at, created_by_id=created_by, updated_by_id=updated_by)
-        return self.connection.execute(statement).inserted_primary_key
+        statement = self.identity.insert()\
+            .values(
+                id=uid, details=details, version=1, communicate_through_id=None,
+                operator_id=operator_id, created_at=created_at, updated_at=updated_at,
+                created_by_id=self.created_by_id, updated_by_id=self.updated_by_id)
+        return self.connection.execute(statement).inserted_primary_key[0]
+
+    def update_identity(self, uid, details, updated_at=None):
+        statement = self.identity.update()\
+            .where(id=uid)\
+            .values(details=details, updated_at=updated_at, updated_by_id=self.updated_by_id)
+        return self.execute(statement)
 
 
 class SeedSBM(Database):
