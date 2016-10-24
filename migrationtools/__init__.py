@@ -75,8 +75,8 @@ def migrate(ctx, limit):
 
 
 @migrate.command(short_help="Migrate registration records to Seed.")
-@click.argument('start', type=click.INT, default=None)
-@click.argument('stop', type=click.INT, default=None)
+@click.argument('start', type=click.INT, default=None, required=False)
+@click.argument('stop', type=click.INT, default=None, required=False)
 @pass_context
 def registrations(ctx, start, stop):
     """This command goes through existing registration records in the
