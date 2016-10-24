@@ -154,7 +154,7 @@ class SeedIdentity(Database):
 
     def update_identity(self, uid, details, updated_at=None):
         statement = self.identity.update()\
-            .where(id=uid)\
+            .where(self.identity.c.id == uid)\
             .values(details=details, updated_at=updated_at, updated_by_id=self.updated_by_id)
         return self.execute(statement)
 
