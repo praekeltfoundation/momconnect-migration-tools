@@ -69,8 +69,8 @@ class Migrator(object):
             identity = self.seed_identity.lookup_identity(identity_id)
             return identity, True
 
-    def migrate_registrations(self, limit=None):
-        for registration in self.ndoh_control.get_registrations(limit=limit):
+    def migrate_registrations(self, start=None, stop=None, limit=None):
+        for registration in self.ndoh_control.get_registrations(start, stop, limit=limit):
             # Use these shortcuts to make the code a bit more readable.
             reg_cols = self.ndoh_control.registration.c
             ident_cols = self.seed_identity.identity.c
