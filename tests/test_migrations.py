@@ -91,7 +91,7 @@ def dummy_clinic_registration(migrator, dummy_initial_data):
     )
 
 
-def test_migrator(migrator, dummy_clinic_registration):
+def test_migrator__clinic_registrations(migrator, dummy_clinic_registration):
     # Migrate registrations.
     migrator.migrate_registrations()
 
@@ -103,8 +103,14 @@ def test_migrator(migrator, dummy_clinic_registration):
             & (migrator.seed_identity.identity.c.details['role'].astext == 'hcw')
         )
     )
-    hwcs = hcw_results.fetchall()
-    assert len(hwcs) == 1
+    hcws = hcw_results.fetchall()
+    assert len(hcws) == 1
+    hcw_ident = hcws[0]
+    assert hcw_ident['details'] == {
+        "role": "hcw",
+        "addresses": {"msisdn": {"+27825550000": {"default": True}}},
+        "default_addr_type": "msisdn"
+    }
 
     # Check mom Identities.
 
