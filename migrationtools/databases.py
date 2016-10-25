@@ -121,6 +121,17 @@ class NDOHHub(Database):
         self.registration = meta.tables['registrations_registration']
         self.user = meta.tables['auth_user']
 
+    def get_source_from_authority(self, authority):
+        if authority == 'clinic':
+            name = 'CLINIC USSD App'
+        elif authority == 'personal':
+            name = 'PUBLIC USSD App'
+        elif authority == 'chw':
+            name = 'CHW USSD App'
+        statement = select([self.source])\
+            .where(self.source.c.name == name)
+        return self.execute(statement).fetchone()
+
     def create_registration_data(
             self, operator_id, msisdn_registrant, msisdn_device, id_type,
             language, consent, edd=None, faccode=None,
@@ -149,11 +160,12 @@ class NDOHHub(Database):
 
     def create_registration(self, registrant_id, reg_type, data, source, created_at, updated_at):
         uid = str(uuid.uuid4())
-        # TODO: Look this up from existing data based on source?
-        source_id = 1
+        source_obj = self.get_source_from_authority(source)
+        if source_obj is None:
+            raise DatabaseError("Could not locate source ({0}) for ndoh-hub registration".format(source_obj))
         statement = self.registration.insert()\
             .values(id=uid, registrant_id=registrant_id, reg_type=reg_type, data=data,
-                    validated=True, created_at=created_at, source_id=source_id,
+                    validated=True, created_at=created_at, source_id=source_obj['id'],
                     updated_at=updated_at, created_by_id=self.migration_user['id'],
                     updated_by_id=self.migration_user['id'])
         return self.execute(statement).inserted_primary_key[0]
