@@ -128,6 +128,8 @@ class NDOHHub(Database):
             name = 'PUBLIC USSD App'
         elif authority == 'chw':
             name = 'CHW USSD App'
+        else:
+            name = 'Migration App'
         statement = select([self.source])\
             .where(self.source.c.name == name)
         return self.execute(statement).fetchone()
