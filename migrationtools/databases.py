@@ -1,11 +1,18 @@
+import base64
 import json
+import os
 import uuid
+from datetime import datetime
 
 from django.core.serializers.json import DjangoJSONEncoder
 from sqlalchemy import create_engine, MetaData
 from sqlalchemy.exc import StatementError, IntegrityError, DataError
 from sqlalchemy.sql import select
 from sqlalchemy.sql.expression import null
+
+
+def generate_random_string(length):
+    return base64.urlsafe_b64encode(os.urandom(length))[:length]
 
 
 def json_serializer(obj):
@@ -17,6 +24,9 @@ class DatabaseError(Exception):
 
 
 class Database(object):
+
+    # The username of the account to create and update records as
+    MIGRATION_USERNAME = 'app_migration'
 
     def __init__(self, db_url):
         self.db_url = db_url
@@ -40,6 +50,27 @@ class Database(object):
             return self.connection.execute(statement)
         except (StatementError, IntegrityError, DataError) as error:
             raise DatabaseError(error.message)
+
+    def get_or_create_user(self, table, username):
+        statement = select([table]).where(table.c.username == username)
+        result = self.execute(statement)
+        user = result.first()
+        unusable_password = '!{0}'.format(generate_random_string(40))
+        if user is None:
+            insert_statement = table.insert()\
+                .values(username=username, email='', first_name='',
+                        last_name='', password=unusable_password, is_staff=False,
+                        is_active=False, is_superuser=False, date_joined=datetime.utcnow())
+            user_id = self.execute(insert_statement).inserted_primary_key[0]
+            statement = select([table]).where(table.c.id == user_id)
+            result = self.execute(statement)
+            user = result.first()
+        return user
+
+    @property
+    def migration_user(self):
+        if hasattr(self, 'user'):
+            return self.get_or_create_user(self.user, self.MIGRATION_USERNAME)
 
 
 class NDOHControl(Database):
@@ -85,17 +116,14 @@ class NDOHHub(Database):
     def _setup_tables(self, meta):
         self.source = meta.tables['registrations_source']
         self.registration = meta.tables['registrations_registration']
+        self.user = meta.tables['auth_user']
 
 
 class SeedIdentity(Database):
 
-    # The ID of the account to create records as
-    created_by_id = 1
-    # The ID of the account to update records as
-    updated_by_id = 1
-
     def _setup_tables(self, meta):
         self.identity = meta.tables['identities_identity']
+        self.user = meta.tables['auth_user']
 
     def lookup_identity(self, uid):
         statement = select([self.identity])\
@@ -149,13 +177,13 @@ class SeedIdentity(Database):
             .values(
                 id=uid, details=details, version=1, communicate_through_id=None,
                 operator_id=operator_id, created_at=created_at, updated_at=updated_at,
-                created_by_id=self.created_by_id, updated_by_id=self.updated_by_id)
+                created_by_id=self.migration_user['id'], updated_by_id=self.migration_user['id'])
         return self.execute(statement).inserted_primary_key[0]
 
     def update_identity(self, uid, details, updated_at=None):
         statement = self.identity.update()\
             .where(self.identity.c.id == uid)\
-            .values(details=details, updated_at=updated_at, updated_by_id=self.updated_by_id)
+            .values(details=details, updated_at=updated_at, updated_by_id=self.migration_user['id'])
         return self.execute(statement)
 
 
@@ -164,9 +192,11 @@ class SeedSBM(Database):
     def _setup_tables(self, meta):
         self.subscription = meta.tables['subscriptions_subscription']
         self.messageset = meta.tables['contentstore_messageset']
+        self.user = meta.tables['auth_user']
 
 
 class SeedScheduler(Database):
 
     def _setup_tables(self, meta):
         self.schedule = meta.tables['scheduler_schedule']
+        self.user = meta.tables['auth_user']
