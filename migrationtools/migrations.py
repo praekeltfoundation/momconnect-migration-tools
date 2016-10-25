@@ -118,11 +118,11 @@ class Migrator(object):
                 # Update the details.
                 current_details = identity[ident_cols.details]
                 try:
-                    self.seed_identity.update_identity_details(
+                    new_details = self.seed_identity.update_identity_details(
                             current_details=current_details, lang_code=lang, consent=consent,
                             sa_id_no=registration[reg_cols.mom_id_no],
                             mom_dob=registration[reg_cols.mom_dob], source=source, last_mc_reg_on=source)
-                    self.seed_identity.update_identity(identity[ident_cols.id], current_details,
+                    self.seed_identity.update_identity(identity[ident_cols.id], new_details,
                                                        updated_at=registration[reg_cols.updated_at])
                 except databases.DatabaseError as error:
                     self.echo(" Failed")

@@ -174,13 +174,15 @@ class SeedIdentity(Database):
         return details
 
     def update_identity_details(self, current_details, lang_code, consent, sa_id_no, mom_dob, source, last_mc_reg_on):
-        """Mutates the given dictionary `current_details` with the other values provided."""
-        current_details['lang_code'] = lang_code
-        current_details['consent'] = consent
-        current_details['sa_id_no'] = sa_id_no
-        current_details['mom_dob'] = mom_dob
-        current_details['source'] = source
-        current_details['last_ms_reg_on'] = last_mc_reg_on
+        """Creates a copy of current_details and returns that updated."""
+        new_details = current_details.copy()
+        new_details['lang_code'] = lang_code
+        new_details['consent'] = consent
+        new_details['sa_id_no'] = sa_id_no
+        new_details['mom_dob'] = mom_dob
+        new_details['source'] = source
+        new_details['last_ms_reg_on'] = last_mc_reg_on
+        return new_details
 
     def create_identity(self, details, operator_id, created_at, updated_at):
         uid = str(uuid.uuid4())
