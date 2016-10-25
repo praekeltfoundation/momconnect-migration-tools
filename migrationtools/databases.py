@@ -135,7 +135,18 @@ class SeedIdentity(Database):
             .where(
                 (self.identity.c.details[('addresses', 'msisdn', msisdn)] != null())
                 & (self.identity.c.details['role'].astext == role))
-        return self.execute(statement).fetchone()
+        result = self.execute(statement)
+        rows = result.fetchall()
+        count = len(rows)
+        if count > 1:
+            msg = "lookup_identity_with_msdisdn returned more than one row for '{0}'. It returned {1}"
+            msg = msg.format(msisdn, count)
+            self.echo(msg, err=True)
+            return rows[0]
+        elif count == 1:
+            return rows[0]
+        else:
+            return None
 
     def create_identity_details(self, msisdn, role, lang_code, consent, sa_id_no, mom_dob, source, last_mc_reg_on):
         details = {
