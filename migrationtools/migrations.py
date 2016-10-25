@@ -131,16 +131,13 @@ class Migrator(object):
                     break
 
             # Create ndoh-hub Registration.
-            created_at = registration[reg_cols.created_at]
-            mom_edd = registration[reg_cols.mom_edd]
-
-            # Prebith or postbirth should be determined by created_at date vs mom_edd date?
             reg_type = 'momconnect_prebirth'
             if hcw_msisdn is not None:
                 msisdn_device = hcw_msisdn
             else:
                 # If the user registered themselves we record the device msisdn as their msisdn.
                 msisdn_device = mom_msisdn
+
             reg_data = self.ndoh_hub.create_registration_data(
                 operator_id=operator_id, msisdn_registrant=mom_msisdn, msisdn_device=msisdn_device,
                 id_type=registration[reg_cols.mom_id_type], language=lang, consent=consent,
@@ -151,7 +148,8 @@ class Migrator(object):
             try:
                 self.ndoh_hub.create_registration(
                     registrant_id=identity[ident_cols.id], reg_type=reg_type, data=reg_data,
-                    source=source, created_at=created_at, updated_at=registration[reg_cols.updated_at])
+                    source=source, created_at=registration[reg_cols.created_at],
+                    updated_at=registration[reg_cols.updated_at])
             except databases.DatabaseError as error:
                     self.echo(" Failed")
                     self.echo("Failed to create NDOH Hub registration for Mom due to a database error:", err=True)
