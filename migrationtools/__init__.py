@@ -39,6 +39,14 @@ class Context(object):
     def __init__(self, config_file, debug=False):
         self.config = Config(config_file)
         self.debug = debug
+        self._migrator = None
+        self.migrator_options = {}
+
+    @property
+    def migrator(self):
+        if self._migrator is None:
+            self._migrator = migrations.Migrator(self.config, echo=click.echo, debug=self.debug)
+        return self._migrator
 
 pass_context = click.make_pass_decorator(Context)
 
@@ -55,11 +63,29 @@ def cli(ctx, config_file, debug):
     ctx.obj = Context(config_file, debug=debug)
 
 
-@cli.command(short_help="Migrate old records to Seed.")
+@cli.group(short_help="Migrate old records to Seed.")
+@click.option('--limit', default=None, type=click.INT,
+              help="The total number of records to limit each migration to")
 @pass_context
-def migrate(ctx):
-    """This command goes through existing subscription records in the
-    ndoh-control database and migrates them to the Seed services.
+def migrate(ctx, limit):
+    """This command goes through existing records in the ndoh-control
+    database and migrates them to the Seed services.
     """
-    migrator = migrations.Migrator(ctx.config, debug=ctx.debug)
-    migrator.full_migration()
+    ctx.migrator_options['limit'] = limit
+
+
+@migrate.command(short_help="Migrate registration records to Seed.")
+@click.argument('start', type=click.INT, default=None, required=False)
+@click.argument('stop', type=click.INT, default=None, required=False)
+@pass_context
+def registrations(ctx, start, stop):
+    """This command goes through existing registration records in the
+    ndoh-control database and migrates them to the Seed services.
+
+    You can provide two optional arguments:
+
+    \b
+    START - the registration ID to start the migration from (inclusive).
+    STOP - the registration ID to stop the migration at (inclusive).
+    """
+    ctx.migrator.migrate_registrations(start=start, stop=stop, limit=ctx.migrator_options['limit'])
