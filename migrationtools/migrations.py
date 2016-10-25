@@ -43,6 +43,16 @@ class Migrator(object):
         except AttributeError:
             raise ImproperlyConfigured("Invalid or missing database configs.")
 
+    @staticmethod
+    def rollback_all_transactions(transaction_dict):
+        for transaction in transaction_dict.values():
+            transaction.rollback()
+
+    @staticmethod
+    def commit_all_transactions(transaction_dict):
+        for transaction in transaction_dict.values():
+            transaction.commit()
+
     def get_or_create_identity(
                 self, msisdn, role='mom', lang_code=None, consent=None,
                 sa_id_no=None, mom_dob=None, source=None, last_mc_reg_on=None,
@@ -71,6 +81,9 @@ class Migrator(object):
 
     def migrate_registrations(self, start=None, stop=None, limit=None):
         for registration in self.ndoh_control.get_registrations(start, stop, limit=limit):
+            # Keep a record of all transactions started so they can all be rolled back on any error.
+            transactions = {}
+
             # Use these shortcuts to make the code a bit more readable.
             reg_cols = self.ndoh_control.registration.c
             ident_cols = self.seed_identity.identity.c
@@ -87,6 +100,9 @@ class Migrator(object):
             if consent is None:
                 consent = False
 
+            # Setup a seed identity transaction:
+            transactions['seed_identity'] = self.seed_identity.start_transaction()
+
             # Get or create Seed Identity for the hcw_msisdn:
             if hcw_msisdn is not None:
                 try:
@@ -95,6 +111,7 @@ class Migrator(object):
                     self.echo(" Failed")
                     self.echo("Failed to get/create Seed Identity for HCW due to a database error:", err=True)
                     self.echo(error.message, err=True)
+                    Migrator.rollback_all_transactions(transactions)
                     break
 
                 operator_id = hcw_identity[ident_cols.id]
@@ -112,6 +129,7 @@ class Migrator(object):
                 self.echo(" Failed")
                 self.echo("Failed to get/create Seed Identity for Mom due to a database error:", err=True)
                 self.echo(error.message, err=True)
+                Migrator.rollback_all_transactions(transactions)
                 break
 
             if not created:
@@ -128,6 +146,7 @@ class Migrator(object):
                     self.echo(" Failed")
                     self.echo("Failed to update Seed Identity for Mom due to a database error:", err=True)
                     self.echo(error.message, err=True)
+                    Migrator.rollback_all_transactions(transactions)
                     break
 
             # Create ndoh-hub Registration.
@@ -145,6 +164,9 @@ class Migrator(object):
                 any_id_no=registration[reg_cols.mom_id_no],
                 passport_origin=registration[reg_cols.mom_passport_origin],
                 mom_dob=registration[reg_cols.mom_dob])
+
+            # Setup a ndoh hub transaction:
+            transactions['ndoh_hub'] = self.ndoh_hub.start_transaction()
             try:
                 self.ndoh_hub.create_registration(
                     registrant_id=identity[ident_cols.id], reg_type=reg_type, data=reg_data,
@@ -154,7 +176,11 @@ class Migrator(object):
                     self.echo(" Failed")
                     self.echo("Failed to create NDOH Hub registration for Mom due to a database error:", err=True)
                     self.echo(error.message, err=True)
+                    Migrator.rollback_all_transactions(transactions)
                     break
+
+            # No errors have occured so commit all transactions now.
+            Migrator.commit_all_transactions(transactions)
             self.echo(" Completed")
 
     def full_migration(self, limit=None):

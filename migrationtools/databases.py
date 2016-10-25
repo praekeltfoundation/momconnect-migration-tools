@@ -51,6 +51,9 @@ class Database(object):
         except (StatementError, IntegrityError, DataError) as error:
             raise DatabaseError(error.message)
 
+    def start_transaction(self):
+        return self.connection.begin()
+
     def get_or_create_user(self, table, username):
         statement = select([table]).where(table.c.username == username)
         result = self.execute(statement)
