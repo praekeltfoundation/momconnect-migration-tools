@@ -118,6 +118,43 @@ class NDOHHub(Database):
         self.registration = meta.tables['registrations_registration']
         self.user = meta.tables['auth_user']
 
+    def create_registration_data(
+            self, operator_id, msisdn_registrant, msisdn_device, id_type,
+            language, consent, edd=None, faccode=None,
+            any_id_no=None, passport_origin=None, mom_dob=None):
+        data = {
+            'operator_id': operator_id,
+            'msisdn_registrant': msisdn_registrant,
+            'msisdn_device': msisdn_device,  # this will be the same as registrant when a user registers themselves.
+            'id_type': id_type,
+            'language': language,
+            'consent': consent
+        }
+        if id_type == 'sa_id':
+            data['sa_id_no'] = any_id_no
+        elif id_type == 'passport':
+            data['passport_no'] = any_id_no
+            data['passport_origin'] = passport_origin
+
+        if mom_dob is not None:
+            data['mom_dob'] = mom_dob
+        if edd is not None:
+            data['edd'] = edd
+        if faccode is not None:
+            data['faccode'] = faccode
+        return data
+
+    def create_registration(self, registrant_id, reg_type, data, source, created_at, updated_at):
+        uid = str(uuid.uuid4())
+        # TODO: Look this up from existing data based on source?
+        source_id = 1
+        statement = self.registration.insert()\
+            .values(id=uid, registrant_id=registrant_id, reg_type=reg_type, data=data,
+                    validated=True, created_at=created_at, source_id=source_id,
+                    updated_at=updated_at, created_by_id=self.migration_user['id'],
+                    updated_by_id=self.migration_user['id'])
+        return self.execute(statement).inserted_primary_key[0]
+
 
 class SeedIdentity(Database):
 

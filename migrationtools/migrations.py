@@ -131,6 +131,32 @@ class Migrator(object):
                     break
 
             # Create ndoh-hub Registration.
+            created_at = registration[reg_cols.created_at]
+            mom_edd = registration[reg_cols.mom_edd]
+
+            # Prebith or postbirth should be determined by created_at date vs mom_edd date?
+            reg_type = 'momconnect_prebirth'
+            if hcw_msisdn is not None:
+                msisdn_device = hcw_msisdn
+            else:
+                # If the user registered themselves we record the device msisdn as their msisdn.
+                msisdn_device = mom_msisdn
+            reg_data = self.ndoh_hub.create_registration_data(
+                operator_id=operator_id, msisdn_registrant=mom_msisdn, msisdn_device=msisdn_device,
+                id_type=registration[reg_cols.mom_id_type], language=lang, consent=consent,
+                edd=registration[reg_cols.mom_edd], faccode=registration[reg_cols.clinic_code],
+                any_id_no=registration[reg_cols.mom_id_no],
+                passport_origin=registration[reg_cols.mom_passport_origin],
+                mom_dob=registration[reg_cols.mom_dob])
+            try:
+                self.ndoh_hub.create_registration(
+                    registrant_id=identity[ident_cols.id], reg_type=reg_type, data=reg_data,
+                    source=source, created_at=created_at, updated_at=registration[reg_cols.updated_at])
+            except databases.DatabaseError as error:
+                    self.echo(" Failed")
+                    self.echo("Failed to create NDOH Hub registration for Mom due to a database error:", err=True)
+                    self.echo(error.message, err=True)
+                    break
             self.echo(" Completed")
 
     def full_migration(self, limit=None):
