@@ -96,14 +96,14 @@ def test_migrator__clinic_registrations(migrator, dummy_clinic_registration):
     migrator.migrate_registrations()
 
     # Check HCW Identities.
-    hcw_results = migrator.seed_identity.execute(
+    results = migrator.seed_identity.execute(
         select([migrator.seed_identity.identity])
         .where(
             (migrator.seed_identity.identity.c.details[('addresses', 'msisdn', '+27825550000')] != null())
             & (migrator.seed_identity.identity.c.details['role'].astext == 'hcw')
         )
     )
-    hcws = hcw_results.fetchall()
+    hcws = results.fetchall()
     assert len(hcws) == 1
     hcw_ident = hcws[0]
     assert hcw_ident['details'] == {
@@ -113,5 +113,26 @@ def test_migrator__clinic_registrations(migrator, dummy_clinic_registration):
     }
 
     # Check mom Identities.
+    results = migrator.seed_identity.execute(
+        select([migrator.seed_identity.identity])
+        .where(
+            (migrator.seed_identity.identity.c.details[('addresses', 'msisdn', '+27825550100')] != null())
+            & (migrator.seed_identity.identity.c.details['role'].astext == 'mom')
+        )
+    )
+    moms = results.fetchall()
+    assert len(moms) == 1
+    mom_ident = moms[0]
+    assert mom_ident['details'] == {
+        "role": "mom",
+        "source": "clinic",
+        "consent": True,
+        "mom_dob": '1970-01-01',
+        "sa_id_no": '7001015550000',
+        "addresses": {"msisdn": {"+27825550100": {"default": True}}},
+        "lang_code": "eng_ZA",
+        "last_mc_reg_on": "clinic",
+        "default_addr_type": "msisdn"
+    }
 
     # Check Hub Registration.
