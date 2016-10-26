@@ -91,7 +91,23 @@ def dummy_clinic_registration(migrator, dummy_initial_data):
     )
 
 
-def test_migrator__clinic_registrations(migrator, dummy_clinic_registration):
+@pytest.fixture()
+def migrator_with_transactions(migrator):
+    # Start a transaction for each DB.
+    transactions = [
+        migrator.ndoh_hub.start_transaction(),
+        migrator.seed_identity.start_transaction(),
+        migrator.seed_sbm.start_transaction(),
+        migrator.seed_scheduler.start_transaction(),
+    ]
+    yield migrator
+    # Rollback all transactions after teardown.
+    for transaction in transactions:
+        transaction.rollback()
+
+
+def test_migrator__clinic_registration(migrator_with_transactions, dummy_clinic_registration):
+    migrator = migrator_with_transactions
     # Migrate registrations.
     migrator.migrate_registrations()
 
