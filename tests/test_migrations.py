@@ -123,9 +123,9 @@ def test_migrator__clinic_registration(migrator_with_transactions, dummy_clinic_
     assert len(hcws) == 1
     hcw_ident = hcws[0]
     assert hcw_ident['details'] == {
-        "role": "hcw",
-        "addresses": {"msisdn": {"+27825550000": {"default": True}}},
-        "default_addr_type": "msisdn"
+        'role': 'hcw',
+        'addresses': {'msisdn': {'+27825550000': {'default': True}}},
+        'default_addr_type': 'msisdn'
     }
 
     # Check mom Identities.
@@ -140,15 +140,35 @@ def test_migrator__clinic_registration(migrator_with_transactions, dummy_clinic_
     assert len(moms) == 1
     mom_ident = moms[0]
     assert mom_ident['details'] == {
-        "role": "mom",
-        "source": "clinic",
-        "consent": True,
-        "mom_dob": '1970-01-01',
-        "sa_id_no": '7001015550000',
-        "addresses": {"msisdn": {"+27825550100": {"default": True}}},
-        "lang_code": "eng_ZA",
-        "last_mc_reg_on": "clinic",
-        "default_addr_type": "msisdn"
+        'role': 'mom',
+        'source': 'clinic',
+        'consent': True,
+        'mom_dob': '1970-01-01',
+        'sa_id_no': '7001015550000',
+        'addresses': {'msisdn': {'+27825550100': {'default': True}}},
+        'lang_code': 'eng_ZA',
+        'last_mc_reg_on': 'clinic',
+        'default_addr_type': 'msisdn'
     }
 
     # Check Hub Registration.
+    results = migrator.ndoh_hub.execute(
+        select([migrator.ndoh_hub.registration])
+        .where(migrator.ndoh_hub.registration.c.registrant_id == mom_ident['id'])
+    )
+    registrations = results.fetchall()
+    assert len(registrations) == 1
+    registration = registrations[0]
+    assert registration['reg_type'] == 'momconnect_prebirth'
+    assert registration['data'] == {
+        'operator_id': hcw_ident['id'],
+        'msisdn_registrant': '+27825550100',
+        'msisdn_device': '+27825550000',
+        'id_type': 'sa_id',
+        'sa_id_no': '7001015550000',
+        'language': 'eng_ZA',
+        'mom_dob': '1970-01-01',
+        'consent': True,
+        'edd': '2016-11-16',
+        'faccode': '357751',
+    }
