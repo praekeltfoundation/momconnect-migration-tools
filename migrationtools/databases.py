@@ -201,11 +201,9 @@ class SeedIdentity(Database):
             .where(self.identity.c.id == uid)
         return self.execute(statement).fetchone()
 
-    def lookup_identity_with_msdisdn(self, msisdn, role):
+    def lookup_identity_with_msdisdn(self, msisdn):
         statement = select([self.identity])\
-            .where(
-                (self.identity.c.details[('addresses', 'msisdn', msisdn)] != null())
-                & (self.identity.c.details['role'].astext == role))
+            .where(self.identity.c.details[('addresses', 'msisdn', msisdn)] != null())
         result = self.execute(statement)
         rows = result.fetchall()
         count = len(rows)
@@ -219,7 +217,7 @@ class SeedIdentity(Database):
         else:
             return None
 
-    def create_identity_details(self, msisdn, role, lang_code, consent, sa_id_no, mom_dob, source, last_mc_reg_on):
+    def create_identity_details(self, msisdn, lang_code, consent, sa_id_no, mom_dob, source, last_mc_reg_on):
         details = {
             'default_addr_type': 'msisdn',
             'addresses': {
@@ -227,7 +225,6 @@ class SeedIdentity(Database):
                     msisdn: {'default': True}
                 }
             },
-            'role': role
         }
         if lang_code is not None:
             details['lang_code'] = lang_code

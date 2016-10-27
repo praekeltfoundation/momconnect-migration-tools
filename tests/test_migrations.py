@@ -115,15 +115,13 @@ def test_migrator__clinic_registration(migrator_with_transactions, dummy_clinic_
     results = migrator.seed_identity.execute(
         select([migrator.seed_identity.identity])
         .where(
-            (migrator.seed_identity.identity.c.details[('addresses', 'msisdn', '+27825550000')] != null())
-            & (migrator.seed_identity.identity.c.details['role'].astext == 'hcw')
+            migrator.seed_identity.identity.c.details[('addresses', 'msisdn', '+27825550000')] != null()
         )
     )
     hcws = results.fetchall()
     assert len(hcws) == 1
     hcw_ident = hcws[0]
     assert hcw_ident['details'] == {
-        'role': 'hcw',
         'addresses': {'msisdn': {'+27825550000': {'default': True}}},
         'default_addr_type': 'msisdn'
     }
@@ -132,15 +130,13 @@ def test_migrator__clinic_registration(migrator_with_transactions, dummy_clinic_
     results = migrator.seed_identity.execute(
         select([migrator.seed_identity.identity])
         .where(
-            (migrator.seed_identity.identity.c.details[('addresses', 'msisdn', '+27825550100')] != null())
-            & (migrator.seed_identity.identity.c.details['role'].astext == 'mom')
+            migrator.seed_identity.identity.c.details[('addresses', 'msisdn', '+27825550100')] != null()
         )
     )
     moms = results.fetchall()
     assert len(moms) == 1
     mom_ident = moms[0]
     assert mom_ident['details'] == {
-        'role': 'mom',
         'source': 'clinic',
         'consent': True,
         'mom_dob': '1970-01-01',

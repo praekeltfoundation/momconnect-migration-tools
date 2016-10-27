@@ -54,10 +54,10 @@ class Migrator(object):
             transaction.commit()
 
     def get_or_create_identity(
-                self, msisdn, role='mom', lang_code=None, consent=None,
-                sa_id_no=None, mom_dob=None, source=None, last_mc_reg_on=None,
+                self, msisdn, lang_code=None, consent=None, sa_id_no=None,
+                mom_dob=None, source=None, last_mc_reg_on=None,
                 operator_id=None, created_at=None, updated_at=None):
-        identity = self.seed_identity.lookup_identity_with_msdisdn(msisdn, role)
+        identity = self.seed_identity.lookup_identity_with_msdisdn(msisdn)
 
         if identity is not None:
             return identity, False
@@ -65,8 +65,8 @@ class Migrator(object):
         else:
             # No existing Identity, so create it.
             details = self.seed_identity.create_identity_details(
-                msisdn=msisdn, role=role, lang_code=lang_code,
-                consent=consent, sa_id_no=sa_id_no, mom_dob=mom_dob,
+                msisdn=msisdn, lang_code=lang_code, consent=consent,
+                sa_id_no=sa_id_no, mom_dob=mom_dob,
                 source=source, last_mc_reg_on=source)
 
             if created_at is None:
@@ -103,10 +103,12 @@ class Migrator(object):
             # Setup a seed identity transaction:
             transactions['seed_identity'] = self.seed_identity.start_transaction()
 
-            # Get or create Seed Identity for the hcw_msisdn:
+            # Get or create Seed Identity for the hcw_msisdn. There is no difference
+            # for roles when creating an Identity. A HCW may also be a mom or a nurse
+            # in the system so there is no role flag.
             if hcw_msisdn is not None:
                 try:
-                    hcw_identity, hcw_created = self.get_or_create_identity(hcw_msisdn, role='hcw')
+                    hcw_identity, hcw_created = self.get_or_create_identity(hcw_msisdn)
                 except databases.DatabaseError as error:
                     self.echo(" Failed")
                     self.echo("Failed to get/create Seed Identity for HCW due to a database error:", err=True)
