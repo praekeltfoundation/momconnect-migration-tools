@@ -125,6 +125,21 @@ class NDOHControl(Database):
             statement = statement.limit(limit)
         return self.connection.execute(statement)
 
+    def get_subscriptions(self, active_only=True, start_id=None, end_id=None, limit=None):
+        statement = select([self.subscription, self.messageset])\
+            .select_from(self.subscription.join(self.messageset))
+        where = (self.subscription.c.active == active_only)
+        if start_id is not None:
+            where = (where & (self.subscription.c.id >= start_id))
+        if end_id is not None:
+            where = (where & (self.subscription.c.id <= end_id))
+        statement = statement.where(where)
+
+        statement = statement.order_by(self.subscription.c.id)
+        if limit is not None:
+            statement = statement.limit(limit)
+        return self.connection.execute(statement)
+
 
 class NDOHHub(Database):
 
@@ -239,6 +254,24 @@ class SeedSBM(Database):
         self.subscription = meta.tables['subscriptions_subscription']
         self.messageset = meta.tables['contentstore_messageset']
         self.user = meta.tables['auth_user']
+
+    def create_subscription_metadata(self):
+        return {
+        }
+
+    def create_subscription(
+            self, identity, version, next_sequence_number, lang,
+            active, completed, schedule_id, process_status,
+            metadata, messageset_id, created_at, updated_at):
+        uid = str(uuid.uuid4())
+        statement = self.subscription.insert()\
+            .values(
+                id=uid, identity=identity, version=version, next_sequence_number=next_sequence_number,
+                lang=lang, active=active, completed=completed, schedule_id=schedule_id,
+                process_status=process_status, metadata=metadata, messageset_id=messageset_id,
+                created_at=created_at, updated_at=updated_at,
+                created_by_id=self.migration_user['id'], updated_by_id=self.migration_user['id'])
+        return self.execute(statement).inserted_primary_key[0]
 
 
 class SeedScheduler(Database):

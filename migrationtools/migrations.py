@@ -10,18 +10,50 @@ class ImproperlyConfigured(Exception):
 
 def transform_language_code(lang):
     return {
-        "zu": "zul_ZA",
-        "xh": "xho_ZA",
-        "af": "afr_ZA",
-        "en": "eng_ZA",
-        "nso": "nso_ZA",
-        "tn": "tsn_ZA",
-        "st": "sot_ZA",
-        "ts": "tso_ZA",
-        "ss": "ssw_ZA",
-        "ve": "ven_ZA",
-        "nr": "nbl_ZA"
+        'zu': 'zul_ZA',
+        'xh': 'xho_ZA',
+        'af': 'afr_ZA',
+        'en': 'eng_ZA',
+        'nso': 'nso_ZA',
+        'tn': 'tsn_ZA',
+        'st': 'sot_ZA',
+        'ts': 'tso_ZA',
+        'ss': 'ssw_ZA',
+        've': 'ven_ZA',
+        'nr': 'nbl_ZA'
     }[lang]
+
+
+def transform_messageset_name(name, schedule=None):
+    if name == 'accelerated':
+        if schedule == 1:
+            # old schedule id 1 = 7 times a week
+            return 'momconnect_prebirth.hw_full.6'
+        elif schedule == 3:
+            # old schedule id 3 = 2 times a week
+            return 'momconnect_prebirth.hw_full.1'
+        elif schedule == 4:
+            # old schedule id 4 = 3 times a week
+            return 'momconnect_prebirth.hw_full.3'
+        elif schedule == 5:
+            # old schedule id 5 = 4 times a week
+            return 'momconnect_prebirth.hw_full.4'
+        elif schedule == 6:
+            # old schedule id 6 = 5 times a week
+            return 'momconnect_prebirth.hw_full.5'
+
+    return {
+        'standard': 'momconnect_prebirth.hw_full.1',
+        'later': 'momconnect_prebirth.hw_full.2',
+        'baby1': 'momconnect_postbirth.hw_full.1',
+        'baby2': 'momconnect_postbirth.hw_full.2',
+        'miscarriage': 'loss_miscarriage.patient.1',
+        'stillbirth': 'loss_stillbirth.patient.1',
+        'subscription': 'momconnect_prebirth.patient.1',
+        'chw': 'momconnect_prebirth.hw_partial.1',
+        'babyloss': 'loss_babyloss.patient.1',
+        'nurseconnect': 'nurseconnect.hw_full.1',
+    }[name]
 
 
 class Migrator(object):
@@ -252,6 +284,66 @@ class Migrator(object):
             Migrator.commit_all_transactions(transactions)
             self.echo(" Completed")
         self.echo('Registation Migration completed')
+
+    def migrate_subscriptions(self, active_only=True, start=None, stop=None, limit=None):
+        # Use these shortcuts to make the code a bit more readable.
+        sub_cols = self.ndoh_control.subscription.c
+        ms_cols = self.ndoh_control.messageset.c
+        ident_cols = self.seed_identity.identity.c
+
+        for subscription in self.ndoh_control.get_subscriptions(active_only, start, stop, limit=limit):
+            # Keep a record of all transactions started so they can all be rolled back on any error.
+            transactions = {}
+
+            # sub DS:
+            # id
+            # user_account
+            # contact_key
+            # to_addr
+            # message_set_id
+            # next_sequence_number
+            # lang
+            # active
+            # completed
+            # created_at
+            # updated_at
+            # schedule_id
+            # process_status
+
+            sub_id = subscription[sub_cols.id]
+            self.echo("Starting migration of {id} ...".format(id=sub_id), nl=False)
+
+            # Get basic details from the sub record
+            msisdn = subscription[sub_cols.to_addr]
+            lang = subscription[sub_cols.lang]
+            old_messageset_name = subscription[ms_cols.short_name]
+            created_at = subscription[sub_cols.created_at]
+            updated_at = subscription[sub_cols.updated_at]
+
+            # Lookup Vumi Contact info for this msisdn, if any:
+            vumi_id = subscription[sub_cols.contact_key]
+            vumi_contact = self.vumi_contacts.lookup_contact(vumi_id)
+
+            # Lookup if there is an existing Seed Identity for this msisdn:
+            identity = self.seed_identity.lookup_identity_with_msdisdn(msisdn)
+            import ipdb; ipdb.set_trace()
+
+            # Setup a seed identity transaction:
+            transactions['seed_identity'] = self.seed_identity.start_transaction()
+
+            if identity is None:
+                # Create the Identity with what we know
+                details = self.seed_identity.create_identity_details(msisdn=msisdn)
+                identity_id = self.seed_identity.create_identity(
+                    details=details, created_at=created_at, updated_at=updated_at)
+            return identity, True
+
+            # Setup a Seed SBM transaction:
+            transactions['seed_sbm'] = self.seed_sbm.start_transaction()
+
+            # Create Seed Subscription
+
+            # Create Seed Schedule
 
     def full_migration(self, limit=None):
         # Migrate registrations
