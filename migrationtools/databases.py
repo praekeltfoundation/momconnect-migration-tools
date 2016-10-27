@@ -264,7 +264,7 @@ class SeedSBM(Database):
         subscription_data['id'] = str(uuid.uuid4())
         subscription_data['created_by_id'] = self.migration_user['id']
         subscription_data['updated_by_id'] = self.migration_user['id']
-        statement = self.identity.insert().values(**subscription_data)
+        statement = self.subscription.insert().values(**subscription_data)
         return self.execute(statement).inserted_primary_key[0]
 
 

@@ -387,7 +387,7 @@ class Migrator(object):
                 'lang': lang,
                 'active': subscription[sub_cols.active],
                 'completed': subscription[sub_cols.completed],
-                'schedule_id': messageset['schedule_id'],
+                'schedule_id': messageset['default_schedule_id'],
                 'process_status': subscription[sub_cols.process_status],
                 'metadata': metadata,
                 'messageset_id': messageset['id'],
