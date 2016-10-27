@@ -217,54 +217,19 @@ class SeedIdentity(Database):
         else:
             return None
 
-    def create_identity_details(self, msisdn, lang_code, consent, sa_id_no, mom_dob, source, last_mc_reg_on):
-        details = {
-            'default_addr_type': 'msisdn',
-            'addresses': {
-                'msisdn': {
-                    msisdn: {'default': True}
-                }
-            },
-        }
-        if lang_code is not None:
-            details['lang_code'] = lang_code
-        if consent is not None:
-            details['consent'] = consent
-        if sa_id_no is not None:
-            details['sa_id_no'] = sa_id_no
-        if mom_dob is not None:
-            details['mom_dob'] = mom_dob
-        if source is not None:
-            details['source'] = source
-        if last_mc_reg_on is not None:
-            details['last_mc_reg_on'] = last_mc_reg_on
-
-        return details
-
-    def update_identity_details(self, current_details, lang_code, consent, sa_id_no, mom_dob, source, last_mc_reg_on):
-        """Creates a copy of current_details and returns that updated."""
-        new_details = current_details.copy()
-        new_details['lang_code'] = lang_code
-        new_details['consent'] = consent
-        new_details['sa_id_no'] = sa_id_no
-        new_details['mom_dob'] = mom_dob
-        new_details['source'] = source
-        new_details['last_ms_reg_on'] = last_mc_reg_on
-        return new_details
-
-    def create_identity(self, details, operator_id, created_at, updated_at):
+    def create_identity(self, identity_data):
         uid = str(uuid.uuid4())
-        statement = self.identity.insert()\
-            .values(
-                id=uid, details=details, version=1, communicate_through_id=None,
-                operator_id=operator_id, created_at=created_at, updated_at=updated_at,
-                created_by_id=self.migration_user['id'], updated_by_id=self.migration_user['id'])
+        identity_data['id'] = uid
+        identity_data['created_by_id'] = self.migration_user['id']
+        identity_data['updated_by_id'] = self.migration_user['id']
+        statement = self.identity.insert().values(**identity_data)
         return self.execute(statement).inserted_primary_key[0]
 
-    def update_identity(self, uid, details, updated_at=None):
+    def update_identity(self, uid, identity_data):
+        identity_data['updated_by_id'] = self.migration_user['id']
         statement = self.identity.update()\
             .where(self.identity.c.id == uid)\
-            .values(details=details, updated_at=updated_at, updated_by_id=self.migration_user['id'])
+            .values(**identity_data)
         return self.execute(statement)
 
 
@@ -281,3 +246,14 @@ class SeedScheduler(Database):
     def _setup_tables(self, meta):
         self.schedule = meta.tables['scheduler_schedule']
         self.user = meta.tables['auth_user']
+
+
+class VumiContacts(Database):
+
+    def _setup_tables(self, meta):
+        self.contact = meta.tables['contacts']
+
+    def lookup_contact(self, key):
+        statement = select([self.contact])\
+            .where(self.contact.c.key == key)
+        return self.execute(statement).fetchone()

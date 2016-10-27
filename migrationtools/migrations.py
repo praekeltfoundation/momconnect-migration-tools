@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime
 
 from . import databases
@@ -40,6 +41,8 @@ class Migrator(object):
                 self.config.DATABASES['seed-stage-based-messaging'])
             self.seed_scheduler = databases.SeedScheduler(
                 self.config.DATABASES['seed-scheduler'])
+            self.vumi_contacts = databases.VumiContacts(
+                self.config.DATABASES['vumi-contacts'])
         except AttributeError:
             raise ImproperlyConfigured("Invalid or missing database configs.")
 
@@ -53,33 +56,91 @@ class Migrator(object):
         for transaction in transaction_dict.values():
             transaction.commit()
 
-    def get_or_create_identity(
-                self, msisdn, lang_code=None, consent=None, sa_id_no=None,
-                mom_dob=None, source=None, last_mc_reg_on=None,
-                operator_id=None, created_at=None, updated_at=None):
-        identity = self.seed_identity.lookup_identity_with_msdisdn(msisdn)
+    def prepare_new_identity_data(
+            self, msisdn, migration_id, migration_type,
+            operator_id, created_at, updated_at, **kwargs):
+        # Required global data.
+        details = {
+            'default_addr_type': 'msisdn',
+            'addresses': {
+                'msisdn': {
+                    msisdn: {'default': True}
+                }
+            },
+            'migrations': {
+                migration_id: {
+                    'type': migration_type,
+                    'migrated_on': datetime.utcnow()
+                }
+            }
+        }
+        identity = {
+            'version': 1,
+            'operator_id': operator_id,
+            'created_at': created_at,
+            'updated_at': updated_at,
+        }
 
-        if identity is not None:
-            return identity, False
+        # Mom data:
+        if 'lang_code' in kwargs:
+            details['lang_code'] = kwargs['lang_code']
+        if 'consent' in kwargs:
+            details['consent'] = kwargs['consent']
+        if 'sa_id_no' in kwargs:
+            details['sa_id_no'] = kwargs['sa_id_no']
+        if 'mom_dob' in kwargs:
+            details['mom_dob'] = kwargs['mom_dob']
+        if 'source' in kwargs:
+            details['source'] = kwargs['source']
+        if 'last_mc_reg_on' in kwargs:
+            details['last_mc_reg_on'] = kwargs['last_mc_reg_on']
 
+        # Nurse data:
+        # TODO: Nurseconnect data
+
+        identity['details'] = details
+        return identity
+
+    def prepare_updated_identity_data(
+            self, current_identity, migration_id, migration_type,
+            operator_id, updated_at, **kwargs):
+        details = current_identity['details']
+        migtation_tag = {'type': migration_type, 'migrated_on': datetime.utcnow()}
+        if 'migrations' in details:
+            details['migrations'][migration_id] = migtation_tag
         else:
-            # No existing Identity, so create it.
-            details = self.seed_identity.create_identity_details(
-                msisdn=msisdn, lang_code=lang_code, consent=consent,
-                sa_id_no=sa_id_no, mom_dob=mom_dob,
-                source=source, last_mc_reg_on=source)
+            details['migtations'] = {migration_id: migtation_tag}
 
-            if created_at is None:
-                created_at = datetime.utcnow()
-            if updated_at is None:
-                updated_at = datetime.utcnow()
-            identity_id = self.seed_identity.create_identity(
-                details=details, operator_id=operator_id, created_at=created_at,
-                updated_at=updated_at)
-            identity = self.seed_identity.lookup_identity(identity_id)
-            return identity, True
+        identity = {
+            'version': current_identity['version'],
+            'operator_id': operator_id,
+            'updated_at': updated_at,
+        }
+
+        # Mom data. Only replace with new data if not currently present.
+        if 'lang_code' in kwargs:
+            details['lang_code'] = details.get('lang_code', None) or kwargs['lang_code']
+        if 'consent' in kwargs:
+            details['consent'] = details.get('consent', None) or kwargs['consent']
+        if 'sa_id_no' in kwargs:
+            details['sa_id_no'] = details.get('sa_id_no', None) or kwargs['sa_id_no']
+        if 'mom_dob' in kwargs:
+            details['mom_dob'] = details.get('mom_dob', None) or kwargs['mom_dob']
+        if 'source' in kwargs:
+            details['source'] = details.get('source', None) or kwargs['source']
+        if 'last_mc_reg_on' in kwargs:
+            details['last_mc_reg_on'] = details.get('last_mc_reg_on', None) or kwargs['last_mc_reg_on']
+
+        # Nurse data. Only replace with new data if not currently present.
+        # TODO: Nurseconnect data
+
+        identity['details'] = details
+        return identity
 
     def migrate_registrations(self, start=None, stop=None, limit=None):
+        migration_id = str(uuid.uuid4())
+        migration_type = 'registration'
+        self.echo('Starting registration migration ({0})'.format(migration_id))
         for registration in self.ndoh_control.get_registrations(start, stop, limit=limit):
             # Keep a record of all transactions started so they can all be rolled back on any error.
             transactions = {}
@@ -88,68 +149,74 @@ class Migrator(object):
             reg_cols = self.ndoh_control.registration.c
             ident_cols = self.seed_identity.identity.c
 
-            # TODO: Query the Vumi Go contact for this msisdn to get more details.
+            registration_id = registration[reg_cols.id]
+            self.echo("Migrating registration: {id} ...".format(id=registration_id), nl=False)
 
-            reg_id = registration[reg_cols.id]
-            self.echo("Starting migration of {id} ...".format(id=reg_id), nl=False)
             mom_msisdn = registration[reg_cols.mom_msisdn]
             hcw_msisdn = registration[reg_cols.hcw_msisdn]
+            created_at = registration[reg_cols.created_at]
+
+            # Setup a seed identity transaction:
+            transactions['seed_identity'] = self.seed_identity.start_transaction()
+
+            if hcw_msisdn is not None:
+                # This person was registered by a HCW, check if they are already in the system.
+                hcw_identity = self.seed_identity.lookup_identity_with_msdisdn(hcw_msisdn)
+                if hcw_identity is None:
+                    # Create a basic Identity record for the HCW.
+                    ident_data = self.prepare_new_identity_data(
+                        hcw_msisdn, migration_id, migration_type, operator_id=None,
+                        created_at=created_at, updated_at=datetime.utcnow())
+                    try:
+                        operator_id = self.seed_identity.create_identity(ident_data)
+                    except databases.DatabaseError as error:
+                        self.echo(" Failed")
+                        self.echo("Failed to create Seed Identity for HCW due to a database error:", err=True)
+                        self.echo(error.message, err=True)
+                        Migrator.rollback_all_transactions(transactions)
+                        break
+            else:
+                operator_id = None
+
             lang = transform_language_code(registration[reg_cols.mom_lang])
             source = registration[reg_cols.authority]
             consent = registration[reg_cols.consent]
             if consent is None:
                 consent = False
 
-            # Setup a seed identity transaction:
-            transactions['seed_identity'] = self.seed_identity.start_transaction()
-
-            # Get or create Seed Identity for the hcw_msisdn. There is no difference
-            # for roles when creating an Identity. A HCW may also be a mom or a nurse
-            # in the system so there is no role flag.
-            if hcw_msisdn is not None:
+            # Check if an Identity already exists for this person.
+            mom_identity = self.seed_identity.lookup_identity_with_msdisdn(mom_msisdn)
+            if mom_identity is None:
+                # Create a full Identity record for the mom.
+                ident_data = self.prepare_new_identity_data(
+                    mom_msisdn, migration_id, migration_type, operator_id=operator_id,
+                    lang_code=lang, consent=consent, sa_id_no=registration[reg_cols.mom_id_no],
+                    mom_dob=registration[reg_cols.mom_dob], source=source,  last_mc_reg_on=source,
+                    created_at=created_at, updated_at=datetime.utcnow())
                 try:
-                    hcw_identity, hcw_created = self.get_or_create_identity(hcw_msisdn)
+                    mom_identity_id = self.seed_identity.create_identity(ident_data)
                 except databases.DatabaseError as error:
                     self.echo(" Failed")
-                    self.echo("Failed to get/create Seed Identity for HCW due to a database error:", err=True)
+                    self.echo("Failed to create Seed Identity for Mom due to a database error:", err=True)
                     self.echo(error.message, err=True)
                     Migrator.rollback_all_transactions(transactions)
                     break
-
-                operator_id = hcw_identity[ident_cols.id]
             else:
-                operator_id = None
-
-            # Get or create Seed Identity for the mom_msisdn:
-            try:
-                identity, created = self.get_or_create_identity(
-                    mom_msisdn, lang_code=lang, consent=consent, sa_id_no=registration[reg_cols.mom_id_no],
+                # The Identity already exists but may not have all the required details.
+                ident_data = self.prepare_updated_identity_data(
+                    mom_identity, migration_id, migration_type, operator_id=operator_id,
+                    lang_code=lang, consent=consent, sa_id_no=registration[reg_cols.mom_id_no],
                     mom_dob=registration[reg_cols.mom_dob], source=source,  last_mc_reg_on=source,
-                    operator_id=operator_id, created_at=registration[reg_cols.created_at],
-                    updated_at=registration[reg_cols.updated_at])
-            except databases.DatabaseError as error:
-                self.echo(" Failed")
-                self.echo("Failed to get/create Seed Identity for Mom due to a database error:", err=True)
-                self.echo(error.message, err=True)
-                Migrator.rollback_all_transactions(transactions)
-                break
-
-            if not created:
-                # Update the details.
-                current_details = identity[ident_cols.details]
+                    updated_at=datetime.utcnow())
                 try:
-                    new_details = self.seed_identity.update_identity_details(
-                            current_details=current_details, lang_code=lang, consent=consent,
-                            sa_id_no=registration[reg_cols.mom_id_no],
-                            mom_dob=registration[reg_cols.mom_dob], source=source, last_mc_reg_on=source)
-                    self.seed_identity.update_identity(identity[ident_cols.id], new_details,
-                                                       updated_at=registration[reg_cols.updated_at])
+                    self.seed_identity.update_identity(mom_identity[ident_cols.id], ident_data)
                 except databases.DatabaseError as error:
                     self.echo(" Failed")
                     self.echo("Failed to update Seed Identity for Mom due to a database error:", err=True)
                     self.echo(error.message, err=True)
                     Migrator.rollback_all_transactions(transactions)
                     break
+                mom_identity_id = mom_identity[ident_cols.id]
 
             # Create ndoh-hub Registration.
             reg_type = 'momconnect_prebirth'
@@ -171,8 +238,8 @@ class Migrator(object):
             transactions['ndoh_hub'] = self.ndoh_hub.start_transaction()
             try:
                 self.ndoh_hub.create_registration(
-                    registrant_id=identity[ident_cols.id], reg_type=reg_type, data=reg_data,
-                    source=source, created_at=registration[reg_cols.created_at],
+                    registrant_id=mom_identity_id, reg_type=reg_type, data=reg_data,
+                    source=source, created_at=created_at,
                     updated_at=registration[reg_cols.updated_at])
             except databases.DatabaseError as error:
                     self.echo(" Failed")
@@ -184,6 +251,7 @@ class Migrator(object):
             # No errors have occured so commit all transactions now.
             Migrator.commit_all_transactions(transactions)
             self.echo(" Completed")
+        self.echo('Registation Migration completed')
 
     def full_migration(self, limit=None):
         # Migrate registrations

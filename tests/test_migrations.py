@@ -32,6 +32,7 @@ def config():
             'seed-identity-store': 'postgresql://postgres:test@localhost/test_seed_identity_store',
             'seed-stage-based-messaging': 'postgresql://postgres:test@localhost/test_seed_stage_based_messaging',
             'seed-scheduler': 'postgresql://postgres:test@localhost/test_seed_scheduler',
+            'vumi-contacts': 'postgresql://postgres:test@localhost/test_vumi_contacts',
         }
     return Config()
 
@@ -114,13 +115,15 @@ def test_migrator__clinic_registration(migrator_with_transactions, dummy_clinic_
     # Check HCW Identities.
     results = migrator.seed_identity.execute(
         select([migrator.seed_identity.identity])
-        .where(
-            migrator.seed_identity.identity.c.details[('addresses', 'msisdn', '+27825550000')] != null()
-        )
+        .where(migrator.seed_identity.identity.c.details[('addresses', 'msisdn', '+27825550000')] != null())
     )
     hcws = results.fetchall()
     assert len(hcws) == 1
     hcw_ident = hcws[0]
+
+    # Don't check the migtation tagged data for testing.
+    del hcw_ident['details']['migrations']
+
     assert hcw_ident['details'] == {
         'addresses': {'msisdn': {'+27825550000': {'default': True}}},
         'default_addr_type': 'msisdn'
@@ -129,13 +132,15 @@ def test_migrator__clinic_registration(migrator_with_transactions, dummy_clinic_
     # Check mom Identities.
     results = migrator.seed_identity.execute(
         select([migrator.seed_identity.identity])
-        .where(
-            migrator.seed_identity.identity.c.details[('addresses', 'msisdn', '+27825550100')] != null()
-        )
+        .where(migrator.seed_identity.identity.c.details[('addresses', 'msisdn', '+27825550100')] != null())
     )
     moms = results.fetchall()
     assert len(moms) == 1
     mom_ident = moms[0]
+
+    # Don't check the migtation tagged data for testing.
+    del mom_ident['details']['migrations']
+
     assert mom_ident['details'] == {
         'source': 'clinic',
         'consent': True,
