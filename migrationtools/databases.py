@@ -281,3 +281,14 @@ class SeedScheduler(Database):
     def _setup_tables(self, meta):
         self.schedule = meta.tables['scheduler_schedule']
         self.user = meta.tables['auth_user']
+
+
+class VumiContacts(Database):
+
+    def _setup_tables(self, meta):
+        self.contact = meta.tables['contacts']
+
+    def lookup_contact(self, key):
+        statement = select([self.contact])\
+            .where(self.contact.c.key == key)
+        return self.execute(statement).fetchone()

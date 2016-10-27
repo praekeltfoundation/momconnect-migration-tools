@@ -40,6 +40,8 @@ class Migrator(object):
                 self.config.DATABASES['seed-stage-based-messaging'])
             self.seed_scheduler = databases.SeedScheduler(
                 self.config.DATABASES['seed-scheduler'])
+            self.vumi_contacts = databases.VumiContacts(
+                self.config.DATABASES['vumi-contacts'])
         except AttributeError:
             raise ImproperlyConfigured("Invalid or missing database configs.")
 
