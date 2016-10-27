@@ -253,11 +253,17 @@ class SeedSBM(Database):
     def _setup_tables(self, meta):
         self.subscription = meta.tables['subscriptions_subscription']
         self.messageset = meta.tables['contentstore_messageset']
+        self.schedule = meta.tables['contentstore_schedule']
         self.user = meta.tables['auth_user']
 
     def lookup_messageset_with_name(self, name):
         statement = select([self.messageset])\
             .where(self.messageset.c.short_name == name)
+        return self.execute(statement).fetchone()
+
+    def lookup_schedule(self, uid):
+        statement = select([self.schedule])\
+            .where(self.schedule.c.id == uid)
         return self.execute(statement).fetchone()
 
     def create_subscription(self, subscription_data):
@@ -267,12 +273,46 @@ class SeedSBM(Database):
         statement = self.subscription.insert().values(**subscription_data)
         return self.execute(statement).inserted_primary_key[0]
 
+    def update_subscription(self, uid, metadata):
+        statement = self.subscription.update()\
+            .where(self.subscription.c.id == uid)\
+            .values(metadata=metadata)
+        return self.execute(statement)
+
 
 class SeedScheduler(Database):
 
     def _setup_tables(self, meta):
         self.schedule = meta.tables['scheduler_schedule']
+        self.periodictask = meta.tables['djcelery_periodictask']
+        self.crontabschedule = meta.tables['djcelery_crontabschedule']
         self.user = meta.tables['auth_user']
+
+    def get_or_create_crontabschedule(self, schedule_data):
+        statement = select([self.crontabschedule])\
+            .where(
+                (self.crontabschedule.c.minute == schedule_data['minute']) &
+                (self.crontabschedule.c.hour == schedule_data['hour']) &
+                (self.crontabschedule.c.day_of_week == schedule_data['day_of_week']) &
+                (self.crontabschedule.c.day_of_month == schedule_data['day_of_month']) &
+                (self.crontabschedule.c.month_of_year == schedule_data['month_of_year']))
+        cs = self.execute(statement).fetchone()
+        if cs is not None:
+            return cs[self.crontabschedule.c.id], False
+
+        statement = self.crontabschedule.insert().values(**schedule_data)
+        return self.execute(statement).inserted_primary_key[0], True
+
+    def create_periodictask(self, task_data):
+        statement = self.periodictask.insert().values(**task_data)
+        return self.execute(statement).inserted_primary_key[0]
+
+    def create_schedule(self, subscription_data):
+        subscription_data['id'] = str(uuid.uuid4())
+        subscription_data['created_by_id'] = self.migration_user['id']
+        subscription_data['updated_by_id'] = self.migration_user['id']
+        statement = self.schedule.insert().values(**subscription_data)
+        return self.execute(statement).inserted_primary_key[0]
 
 
 class VumiContacts(Database):
