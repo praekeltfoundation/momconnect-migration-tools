@@ -170,16 +170,16 @@ class Migrator(object):
         return identity
 
     def migrate_registrations(self, start=None, stop=None, limit=None):
+        # Use these shortcuts to make the code a bit more readable.
+        reg_cols = self.ndoh_control.registration.c
+        ident_cols = self.seed_identity.identity.c
+
         migration_id = str(uuid.uuid4())
         migration_type = 'registration'
         self.echo('Starting registration migration ({0})'.format(migration_id))
         for registration in self.ndoh_control.get_registrations(start, stop, limit=limit):
             # Keep a record of all transactions started so they can all be rolled back on any error.
             transactions = {}
-
-            # Use these shortcuts to make the code a bit more readable.
-            reg_cols = self.ndoh_control.registration.c
-            ident_cols = self.seed_identity.identity.c
 
             registration_id = registration[reg_cols.id]
             self.echo("Migrating registration: {id} ...".format(id=registration_id), nl=False)
@@ -291,24 +291,12 @@ class Migrator(object):
         ms_cols = self.ndoh_control.messageset.c
         ident_cols = self.seed_identity.identity.c
 
+        migration_id = str(uuid.uuid4())
+        migration_type = 'registration'
+        self.echo('Starting registration migration ({0})'.format(migration_id))
         for subscription in self.ndoh_control.get_subscriptions(active_only, start, stop, limit=limit):
             # Keep a record of all transactions started so they can all be rolled back on any error.
             transactions = {}
-
-            # sub DS:
-            # id
-            # user_account
-            # contact_key
-            # to_addr
-            # message_set_id
-            # next_sequence_number
-            # lang
-            # active
-            # completed
-            # created_at
-            # updated_at
-            # schedule_id
-            # process_status
 
             sub_id = subscription[sub_cols.id]
             self.echo("Starting migration of {id} ...".format(id=sub_id), nl=False)
@@ -320,30 +308,111 @@ class Migrator(object):
             created_at = subscription[sub_cols.created_at]
             updated_at = subscription[sub_cols.updated_at]
 
-            # Lookup Vumi Contact info for this msisdn, if any:
-            vumi_id = subscription[sub_cols.contact_key]
-            vumi_contact = self.vumi_contacts.lookup_contact(vumi_id)
-
-            # Lookup if there is an existing Seed Identity for this msisdn:
+            # Lookup if there is an existing Seed Identity for this msisdn.
             identity = self.seed_identity.lookup_identity_with_msdisdn(msisdn)
-            import ipdb; ipdb.set_trace()
 
             # Setup a seed identity transaction:
             transactions['seed_identity'] = self.seed_identity.start_transaction()
 
             if identity is None:
-                # Create the Identity with what we know
-                details = self.seed_identity.create_identity_details(msisdn=msisdn)
-                identity_id = self.seed_identity.create_identity(
-                    details=details, created_at=created_at, updated_at=updated_at)
-            return identity, True
+                ident_lang = None
+                # Lookup Vumi Contact info for this msisdn.
+                vumi_id = subscription[sub_cols.contact_key]
+                vumi_contact = self.vumi_contacts.lookup_contact(vumi_id)
+
+                if vumi_contact is None:
+                    consent = False
+                    sa_id_no = None
+                    mom_dob = None
+                    source = None
+                    vumi_lang = None
+                else:
+                    consent = vumi_contact['json']['extra'].get('consent', False)
+                    sa_id_no = vumi_contact['json']['extra'].get('sa_id', False)
+                    mom_dob = vumi_contact['json']['extra'].get('dob', False)
+                    vumi_lang = vumi_contact['json']['extra'].get('language_choice', None)
+                    source = None
+
+                # Create the Identity using the Vumi Data if available.
+                ident_data = self.prepare_new_identity_data(
+                    msisdn, migration_id, migration_type, operator_id=None, lang_code=lang,
+                    consent=consent, sa_id_no=sa_id_no, mom_dob=mom_dob, source=source,
+                    created_at=created_at, updated_at=datetime.utcnow())
+                try:
+                    identity_id = self.seed_identity.create_identity(ident_data)
+                except databases.DatabaseError as error:
+                    self.echo(" Failed")
+                    self.echo("Failed to create Seed Identity due to a database error:", err=True)
+                    self.echo(error.message, err=True)
+                    Migrator.rollback_all_transactions(transactions)
+                    break
+            else:
+                ident_lang = identity[ident_cols.details].get('lang_code', None)
+                identity_id = identity[ident_cols.id]
+
+            if not lang:
+                # There was no language set for this sub, check other venues.
+                if vumi_lang is not None:
+                    lang = transform_language_code(vumi_lang)
+                if ident_lang is not None:
+                    # Identity language code should take preference.
+                    lang = ident_lang
+                if not lang:
+                    # We didn't find a fallback language.
+                    self.echo(" Failed")
+                    self.echo("Could not determine a language for this subscription", err=True)
+                    Migrator.rollback_all_transactions(transactions)
+                    break
+            else:
+                lang = transform_language_code(lang)
+
+            # Lookup the messageset needed by this Subscription.
+            new_messageset_name = transform_messageset_name(old_messageset_name)
+            messageset = self.seed_sbm.lookup_messageset_with_name(new_messageset_name)
+            if messageset is None:
+                # We didn't find the required message set.
+                self.echo(" Failed")
+                msg = "Could not load the required MessageSet ({0}) for this subscription"
+                msg = msg.format(new_messageset_name)
+                self.echo(msg, err=True)
+                Migrator.rollback_all_transactions(transactions)
+                break
+
+            # Setup subscription data.
+            metadata = {}
+            subscription_data = {
+                'identity': identity_id,
+                'version': 1,
+                'next_sequence_number': subscription[sub_cols.next_sequence_number],
+                'lang': lang,
+                'active': subscription[sub_cols.active],
+                'completed': subscription[sub_cols.completed],
+                'schedule_id': messageset['schedule_id'],
+                'process_status': subscription[sub_cols.process_status],
+                'metadata': metadata,
+                'messageset_id': messageset['id'],
+                'created_at': created_at,
+                'updated_at': updated_at,
+            }
 
             # Setup a Seed SBM transaction:
             transactions['seed_sbm'] = self.seed_sbm.start_transaction()
 
             # Create Seed Subscription
+            try:
+                subscription_id = self.seed_sbm.create_subscription(subscription_data)
+            except databases.DatabaseError as error:
+                self.echo(" Failed")
+                self.echo("Failed to create Seed Subscription due to a database error:", err=True)
+                self.echo(error.message, err=True)
+                Migrator.rollback_all_transactions(transactions)
+                break
 
             # Create Seed Schedule
+
+            # No errors have occured so commit all transactions now.
+            Migrator.commit_all_transactions(transactions)
+            self.echo(" Completed")
 
     def full_migration(self, limit=None):
         # Migrate registrations

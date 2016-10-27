@@ -255,22 +255,16 @@ class SeedSBM(Database):
         self.messageset = meta.tables['contentstore_messageset']
         self.user = meta.tables['auth_user']
 
-    def create_subscription_metadata(self):
-        return {
-        }
+    def lookup_messageset_with_name(self, name):
+        statement = select([self.messageset])\
+            .where(self.messageset.c.short_name == name)
+        return self.execute(statement).fetchone()
 
-    def create_subscription(
-            self, identity, version, next_sequence_number, lang,
-            active, completed, schedule_id, process_status,
-            metadata, messageset_id, created_at, updated_at):
-        uid = str(uuid.uuid4())
-        statement = self.subscription.insert()\
-            .values(
-                id=uid, identity=identity, version=version, next_sequence_number=next_sequence_number,
-                lang=lang, active=active, completed=completed, schedule_id=schedule_id,
-                process_status=process_status, metadata=metadata, messageset_id=messageset_id,
-                created_at=created_at, updated_at=updated_at,
-                created_by_id=self.migration_user['id'], updated_by_id=self.migration_user['id'])
+    def create_subscription(self, subscription_data):
+        subscription_data['id'] = str(uuid.uuid4())
+        subscription_data['created_by_id'] = self.migration_user['id']
+        subscription_data['updated_by_id'] = self.migration_user['id']
+        statement = self.identity.insert().values(**subscription_data)
         return self.execute(statement).inserted_primary_key[0]
 
 
