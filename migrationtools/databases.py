@@ -63,7 +63,8 @@ class Database(object):
             insert_statement = table.insert()\
                 .values(username=username, email='', first_name='',
                         last_name='', password=unusable_password, is_staff=False,
-                        is_active=False, is_superuser=False, date_joined=datetime.utcnow())
+                        is_active=False, is_superuser=False, date_joined=datetime.utcnow(),
+                        last_login=datetime.utcnow())
             user_id = self.execute(insert_statement).inserted_primary_key[0]
             statement = select([table]).where(table.c.id == user_id)
             result = self.execute(statement)
@@ -85,6 +86,17 @@ class NDOHControl(Database):
         self.messageset = meta.tables['subscription_messageset']
         self.crontabschedule = meta.tables['djcelery_crontabschedule']
         self.periodtask = meta.tables['djcelery_periodictask']
+        self.user = meta.tables['auth_user']
+
+    def create_source(self, **kwargs):
+        """Creates a source record. Used only for testing."""
+        statement = self.source.insert().values(**kwargs)
+        return self.execute(statement).inserted_primary_key[0]
+
+    def create_registration(self, **kwargs):
+        """Creates a registration record. Used only for testing."""
+        statement = self.registration.insert().values(**kwargs)
+        return self.execute(statement).inserted_primary_key[0]
 
     def get_registrations(self, start_id=None, end_id=None, limit=None):
         """Get all the current registration records order by pk (id) in
@@ -120,6 +132,11 @@ class NDOHHub(Database):
         self.source = meta.tables['registrations_source']
         self.registration = meta.tables['registrations_registration']
         self.user = meta.tables['auth_user']
+
+    def create_source(self, **kwargs):
+        """Creates a source record. Used only for testing."""
+        statement = self.source.insert().values(**kwargs)
+        return self.execute(statement).inserted_primary_key[0]
 
     def get_source_from_authority(self, authority):
         if authority == 'clinic':

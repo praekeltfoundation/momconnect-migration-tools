@@ -1,2 +1,4 @@
 -r base.pip
 pytest==3.0.3
+SQLAlchemy-Utils==0.32.9
+subprocess32==3.2.7
