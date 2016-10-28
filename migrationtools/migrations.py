@@ -521,8 +521,18 @@ class Migrator(object):
                     vumi_lang = vumi_contact['json']['extra'].get('language_choice', None)
                     source = None
 
-                if vumi_lang is not None:
-                    lang_code = transform_language_code(vumi_lang)
+                if not lang:
+                    # There was no language set for this sub, check other venues.
+                    if vumi_lang is not None:
+                        lang_code = transform_language_code(vumi_lang)
+                    else:
+                        # We didn't find a fallback language.
+                        self.echo(" Failed")
+                        self.echo("Could not determine a language for this subscription", err=True)
+                        Migrator.rollback_all_transactions(transactions)
+                        break
+                else:
+                    lang_code = transform_language_code(lang)
 
                 # Create the Identity using the Vumi Data if available.
                 ident_data = self.prepare_new_identity_data(
