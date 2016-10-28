@@ -8,7 +8,7 @@ from django.core.serializers.json import DjangoJSONEncoder
 from sqlalchemy import create_engine, MetaData
 from sqlalchemy.exc import StatementError, IntegrityError, DataError
 from sqlalchemy.sql import select
-from sqlalchemy.sql.expression import null
+from sqlalchemy.sql.expression import null, false
 
 
 def generate_random_string(length):
@@ -86,6 +86,8 @@ class NDOHControl(Database):
         self.messageset = meta.tables['subscription_messageset']
         self.crontabschedule = meta.tables['djcelery_crontabschedule']
         self.periodtask = meta.tables['djcelery_periodictask']
+        self.ncregistration = meta.tables['nursereg_nursereg']
+        self.ncsource = meta.tables['nursereg_nursesource']
         self.user = meta.tables['auth_user']
 
     def create_source(self, **kwargs):
@@ -114,13 +116,37 @@ class NDOHControl(Database):
             where = (self.registration.c.id >= start_id)
         if end_id is not None:
             if where is not None:
-                where = where & (self.registration.c.id <= end_id)
+                where = (where & (self.registration.c.id <= end_id))
             else:
                 where = (self.registration.c.id <= end_id)
         if where is not None:
             statement = statement.where(where)
 
         statement = statement.order_by(self.registration.c.id)
+        if limit is not None:
+            statement = statement.limit(limit)
+        return self.connection.execute(statement)
+
+    def get_nc_registrations(self, start_id=None, end_id=None, limit=None):
+        """Get all the current nurseconnect registration records order
+        by pk (id) in ascending order. Does not include opted out records.
+
+        start_id and end_id can be given as inclusive boundries of which rows
+        to select.
+
+        limit can be given has a hard cutoff on the number of rows to select.
+        """
+        statement = select([self.ncregistration, self.ncsource])\
+            .select_from(self.ncregistration.join(self.ncsource))
+        where = (self.ncregistration.opted_out == false())
+        if start_id is not None:
+            where = (where & (self.ncregistration.c.id >= start_id))
+        if end_id is not None:
+            where = (where & (self.ncregistration.c.id <= end_id))
+        if where is not None:
+            statement = statement.where(where)
+
+        statement = statement.order_by(self.ncregistration.c.id)
         if limit is not None:
             statement = statement.limit(limit)
         return self.connection.execute(statement)

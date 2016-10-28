@@ -297,6 +297,41 @@ class Migrator(object):
             self.echo(" Completed")
         self.echo('Registation Migration completed')
 
+    def migrate_nurseconnect_registrations(self, start=None, stop=None, limit=None):
+        # Use these shortcuts to make the code a bit more readable.
+        nc_cols = self.ndoh_control.ncregistration.c
+        ident_cols = self.seed_identity.identity.c
+
+        migration_id = str(uuid.uuid4())
+        migration_type = 'nurseconnect'
+        self.echo('Starting nurseconnect migration ({0})'.format(migration_id))
+        for registration in self.ndoh_control.get_registrations(start, stop, limit=limit):
+            # Keep a record of all transactions started so they can all be rolled back on any error.
+            transactions = {}
+
+            # id              | integer
+            # cmsisdn         | character varying(255)
+            # dmsisdn         | character varying(255)
+            # rmsisdn         | character varying(255)
+            # faccode         | character varying(100)
+            # id_type         | character varying(8)
+            # id_no           | character varying(100)
+            # passport_origin | character varying(100)
+            # dob             | date
+            # nurse_source_id | integer
+            # persal_no       | integer
+            # opted_out       | boolean
+            # optout_reason   | character varying(100)
+            # optout_count    | integer
+            # sanc_reg_no     | integer
+            # created_at      | timestamp with time zone
+            # updated_at      | timestamp with time zone
+
+            # No errors have occured so commit all transactions now.
+            Migrator.commit_all_transactions(transactions)
+            self.echo(" Completed")
+        self.echo('Nurseconnect migration completed')
+
     def migrate_subscriptions(self, active_only=True, start=None, stop=None, limit=None):
         # Use these shortcuts to make the code a bit more readable.
         sub_cols = self.ndoh_control.subscription.c
