@@ -528,10 +528,8 @@ class Migrator(object):
                         lang_code = transform_language_code(vumi_lang)
                     else:
                         # We didn't find a fallback language.
-                        self.echo(" Failed")
-                        self.echo("Could not determine a language for this subscription", err=True)
-                        Migrator.rollback_all_transactions(transactions)
-                        break
+                        self.echo("Could not find any language for sub: {0}, default to English".format(sub_id))
+                        lang_code = transform_language_code('en')
                 else:
                     lang_code = transform_language_code(lang)
 
@@ -562,10 +560,8 @@ class Migrator(object):
                     lang = ident_lang
                 if not lang:
                     # We didn't find a fallback language.
-                    self.echo(" Failed")
-                    self.echo("Could not determine a language for this subscription", err=True)
-                    Migrator.rollback_all_transactions(transactions)
-                    break
+                    self.echo("Could not find any language for sub: {0}, default to English".format(sub_id))
+                    lang_code = transform_language_code('en')
             else:
                 lang = transform_language_code(lang)
 
