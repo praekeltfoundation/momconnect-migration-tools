@@ -494,6 +494,7 @@ class Migrator(object):
             old_messageset_name = subscription[ms_cols.short_name]
             created_at = subscription[sub_cols.created_at]
             updated_at = subscription[sub_cols.updated_at]
+            existing_schedule_id = subscription[sub_cols.schedule_id]
             active = subscription[sub_cols.active]
 
             # Lookup if there is an existing Seed Identity for this msisdn.
@@ -521,8 +522,16 @@ class Migrator(object):
                     vumi_lang = vumi_contact['json']['extra'].get('language_choice', None)
                     source = None
 
-                if vumi_lang is not None:
-                    lang_code = transform_language_code(vumi_lang)
+                if not lang:
+                    # There was no language set for this sub, check other venues.
+                    if vumi_lang is not None:
+                        lang_code = transform_language_code(vumi_lang)
+                    else:
+                        # We didn't find a fallback language.
+                        self.echo("Could not find any language for sub: {0}, default to English".format(sub_id))
+                        lang_code = transform_language_code('en')
+                else:
+                    lang_code = transform_language_code(lang)
 
                 # Create the Identity using the Vumi Data if available.
                 ident_data = self.prepare_new_identity_data(
@@ -551,15 +560,13 @@ class Migrator(object):
                     lang = ident_lang
                 if not lang:
                     # We didn't find a fallback language.
-                    self.echo(" Failed")
-                    self.echo("Could not determine a language for this subscription", err=True)
-                    Migrator.rollback_all_transactions(transactions)
-                    break
+                    self.echo("Could not find any language for sub: {0}, default to English".format(sub_id))
+                    lang_code = transform_language_code('en')
             else:
                 lang = transform_language_code(lang)
 
             # Lookup the messageset needed by this Subscription.
-            new_messageset_name = transform_messageset_name(old_messageset_name)
+            new_messageset_name = transform_messageset_name(old_messageset_name, existing_schedule_id)
             messageset = self.seed_sbm.lookup_messageset_with_name(new_messageset_name)
             if messageset is None:
                 # We didn't find the required message set.
