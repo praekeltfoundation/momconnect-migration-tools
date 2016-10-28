@@ -138,7 +138,7 @@ class NDOHControl(Database):
         """
         statement = select([self.ncregistration, self.ncsource])\
             .select_from(self.ncregistration.join(self.ncsource))
-        where = (self.ncregistration.opted_out == false())
+        where = (self.ncregistration.c.opted_out == false())
         if start_id is not None:
             where = (where & (self.ncregistration.c.id >= start_id))
         if end_id is not None:
@@ -186,6 +186,8 @@ class NDOHHub(Database):
             name = 'PUBLIC USSD App'
         elif authority == 'chw':
             name = 'CHW USSD App'
+        elif authority == 'nurseconnect':
+            name = 'NURSE USSD App'
         else:
             name = 'Migration App'
         statement = select([self.source])\
@@ -349,4 +351,9 @@ class VumiContacts(Database):
     def lookup_contact(self, key):
         statement = select([self.contact])\
             .where(self.contact.c.key == key)
+        return self.execute(statement).fetchone()
+
+    def lookup_contact_with_msisdn(self, msisdn):
+        statement = select([self.contact])\
+            .where(self.contact.c.msisdn == msisdn)
         return self.execute(statement).fetchone()
