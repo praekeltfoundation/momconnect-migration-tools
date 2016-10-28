@@ -140,7 +140,29 @@ class Migrator(object):
             details['last_mc_reg_on'] = kwargs['last_mc_reg_on']
 
         # Nurse data:
-        # TODO: Nurseconnect data
+        if 'nurseconnect' in kwargs and kwargs['nurseconnect']:
+            nc = {}
+            if 'faccode' in kwargs:
+                nc['faccode'] = kwargs['faccode']
+            if 'facname' in kwargs:
+                nc['facname'] = kwargs['facname']
+            if 'id_type' in kwargs:
+                nc['id_type'] = kwargs['id_type']
+                if kwargs['id_type'] == 'sa_id':
+                    if 'sa_id_no' in kwargs:
+                        # duplicate of above mom data, but it is clearer here.
+                        nc['sa_id_no'] = kwargs['sa_id_no']
+                elif kwargs['id_type'] == 'passport':
+                    if 'sa_id_no' in kwargs:
+                        nc['passport_no'] = kwargs['sa_id_no']
+                    if 'passport_origin' in kwargs:
+                        nc['passport_origin'] = kwargs['passport_origin']
+            if 'mom_dob' in kwargs:
+                # duplicate of above mom data, but it is clearer here.
+                nc['dob'] = kwargs['mom_dob']
+            if 'redial_sms_sent' in kwargs:
+                nc['redial_sms_sent'] = kwargs['redial_sms_sent']
+            details['nurseconnect'] = nc
 
         identity['details'] = details
         return identity
@@ -176,7 +198,28 @@ class Migrator(object):
             details['last_mc_reg_on'] = details.get('last_mc_reg_on', None) or kwargs['last_mc_reg_on']
 
         # Nurse data. Only replace with new data if not currently present.
-        # TODO: Nurseconnect data
+        if 'nurseconnect' in kwargs and kwargs['nurseconnect']:
+            nc = details.get('nurseconnect', {})
+            if 'faccode' in kwargs:
+                nc['faccode'] = nc.get('faccode', None) or kwargs['faccode']
+            if 'facname' in kwargs:
+                nc['facname'] = nc.get('facname', None) or kwargs['facname']
+            if 'id_type' in kwargs:
+                nc['id_type'] = nc.get('id_type', None) or kwargs['id_type']
+                if kwargs['id_type'] == 'sa_id':
+                    if 'sa_id_no' in kwargs:
+                        nc['sa_id_no'] = nc.get('sa_id_no', None) or kwargs['sa_id_no']
+                elif kwargs['id_type'] == 'passport':
+                    if 'sa_id_no' in kwargs:
+                        nc['passport_no'] = nc.get('passport_no', None) or kwargs['sa_id_no']
+                    if 'passport_origin' in kwargs:
+                        nc['passport_origin'] = nc.get('passport_origin', None) or kwargs['passport_origin']
+            if 'mom_dob' in kwargs:
+                # duplicate of above mom data, but it is clearer here.
+                nc['dob'] = nc.get('dob', None) or kwargs['mom_dob']
+            if 'redial_sms_sent' in kwargs:
+                nc['redial_sms_sent'] = nc.get('redial_sms_sent', None) or kwargs['redial_sms_sent']
+            details['nurseconnect'] = nc
 
         identity['details'] = details
         return identity
@@ -219,6 +262,8 @@ class Migrator(object):
                         self.echo(error.message, err=True)
                         Migrator.rollback_all_transactions(transactions)
                         break
+                else:
+                    operator_id = hcw_identity['id']
             else:
                 operator_id = None
 
@@ -296,6 +341,135 @@ class Migrator(object):
             Migrator.commit_all_transactions(transactions)
             self.echo(" Completed")
         self.echo('Registation Migration completed')
+
+    def migrate_nurseconnect_registrations(self, start=None, stop=None, limit=None):
+        # Use these shortcuts to make the code a bit more readable.
+        nc_cols = self.ndoh_control.ncregistration.c
+        ident_cols = self.seed_identity.identity.c
+
+        migration_id = str(uuid.uuid4())
+        migration_type = 'nurseconnect'
+        self.echo('Starting nurseconnect migration ({0})'.format(migration_id))
+        for registration in self.ndoh_control.get_nc_registrations(start, stop, limit=limit):
+            # Keep a record of all transactions started so they can all be rolled back on any error.
+            transactions = {}
+
+            registration_id = registration[nc_cols.id]
+            self.echo("Migrating nurseconnect registration: {id} ...".format(id=registration_id), nl=False)
+
+            cmsisdn = registration[nc_cols.cmsisdn]  # contact
+            dmsisdn = registration[nc_cols.dmsisdn]  # device
+            created_at = registration[nc_cols.created_at]
+
+            # Setup a seed identity transaction:
+            transactions['seed_identity'] = self.seed_identity.start_transaction()
+
+            if dmsisdn is not None and cmsisdn != dmsisdn:
+                # This person was registered by a 3rdparty, check if they are already in the system.
+                device_identity = self.seed_identity.lookup_identity_with_msdisdn(dmsisdn)
+                if device_identity is None:
+                    # Create a basic Identity record for the HCW.
+                    ident_data = self.prepare_new_identity_data(
+                        dmsisdn, migration_id, migration_type, operator_id=None,
+                        created_at=created_at, updated_at=datetime.utcnow())
+                    try:
+                        operator_id = self.seed_identity.create_identity(ident_data)
+                    except databases.DatabaseError as error:
+                        self.echo(" Failed")
+                        self.echo("Failed to create Seed Identity for NC device due to a database error:", err=True)
+                        self.echo(error.message, err=True)
+                        Migrator.rollback_all_transactions(transactions)
+                        break
+                else:
+                    operator_id = device_identity['id']
+            else:
+                operator_id = None
+
+            # Lookup Vumi Contact info for this msisdn.
+            vumi_contact = self.vumi_contacts.lookup_contact_with_msisdn(cmsisdn)
+            consent = vumi_contact['json']['extra'].get('consent', False)
+            vumi_lang = vumi_contact['json']['extra'].get('language_choice', None)
+
+            if vumi_lang is None:
+                # We didn't find a language.
+                self.echo(" Failed")
+                self.echo("Could not determine a language for this nurseconnect registration", err=True)
+                Migrator.rollback_all_transactions(transactions)
+                break
+
+            lang = transform_language_code(vumi_lang)
+
+            # Check if an Identity already exists for this person.
+            contact_identity = self.seed_identity.lookup_identity_with_msdisdn(cmsisdn)
+            if contact_identity is None:
+                # Create a full Identity record for the mom.
+                ident_data = self.prepare_new_identity_data(
+                    cmsisdn, migration_id, migration_type, operator_id=operator_id,
+                    lang_code=lang, consent=consent, mom_dob=registration[nc_cols.dob],
+                    nurseconnect=True, faccode=registration[nc_cols.faccode],
+                    id_type=registration[nc_cols.id_type], sa_id_no=registration[nc_cols.id_no],
+                    passport_origin=registration[nc_cols.passport_origin],
+                    created_at=created_at, updated_at=datetime.utcnow())
+                try:
+                    contact_identity_id = self.seed_identity.create_identity(ident_data)
+                except databases.DatabaseError as error:
+                    self.echo(" Failed")
+                    self.echo("Failed to create Seed Identity for Nurse due to a database error:", err=True)
+                    self.echo(error.message, err=True)
+                    Migrator.rollback_all_transactions(transactions)
+                    break
+            else:
+                # The Identity already exists but may not have all the required details.
+                ident_data = self.prepare_updated_identity_data(
+                    contact_identity, migration_id, migration_type, operator_id=operator_id,
+                    lang_code=lang, consent=consent, mom_dob=registration[nc_cols.dob],
+                    nurseconnect=True, faccode=registration[nc_cols.faccode],
+                    id_type=registration[nc_cols.id_type], sa_id_no=registration[nc_cols.id_no],
+                    passport_origin=registration[nc_cols.passport_origin],
+                    updated_at=datetime.utcnow())
+                try:
+                    self.seed_identity.update_identity(contact_identity[ident_cols.id], ident_data)
+                except databases.DatabaseError as error:
+                    self.echo(" Failed")
+                    self.echo("Failed to update Seed Identity for Nurse due to a database error:", err=True)
+                    self.echo(error.message, err=True)
+                    Migrator.rollback_all_transactions(transactions)
+                    break
+                contact_identity_id = contact_identity[ident_cols.id]
+
+            # Create ndoh-hub Registration.
+            reg_type = source = 'nurseconnect'
+            if dmsisdn is not None:
+                msisdn_device = dmsisdn
+            else:
+                # If the user registered themselves we record the device msisdn as their msisdn.
+                msisdn_device = cmsisdn
+
+            reg_data = self.ndoh_hub.create_registration_data(
+                operator_id=operator_id, msisdn_registrant=cmsisdn, msisdn_device=msisdn_device,
+                id_type=registration[nc_cols.id_type], language=lang, consent=consent,
+                faccode=registration[nc_cols.faccode], any_id_no=registration[nc_cols.id_no],
+                passport_origin=registration[nc_cols.passport_origin],
+                mom_dob=registration[nc_cols.dob])
+
+            # Setup a ndoh hub transaction:
+            transactions['ndoh_hub'] = self.ndoh_hub.start_transaction()
+            try:
+                self.ndoh_hub.create_registration(
+                    registrant_id=contact_identity_id, reg_type=reg_type, data=reg_data,
+                    source=source, created_at=created_at,
+                    updated_at=registration[nc_cols.updated_at])
+            except databases.DatabaseError as error:
+                    self.echo(" Failed")
+                    self.echo("Failed to create NDOH Hub registration for Nurse due to a database error:", err=True)
+                    self.echo(error.message, err=True)
+                    Migrator.rollback_all_transactions(transactions)
+                    break
+
+            # No errors have occured so commit all transactions now.
+            Migrator.commit_all_transactions(transactions)
+            self.echo(" Completed")
+        self.echo('Nurseconnect migration completed')
 
     def migrate_subscriptions(self, active_only=True, start=None, stop=None, limit=None):
         # Use these shortcuts to make the code a bit more readable.
