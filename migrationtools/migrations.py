@@ -18,6 +18,7 @@ def transform_language_code(lang):
         'en': 'eng_ZA',
         'nso': 'nso_ZA',
         'tn': 'tsn_ZA',
+        'so': 'sot_ZA',  # Nurseconnect ran with a broken language code for a while, support it here.
         'st': 'sot_ZA',
         'ts': 'tso_ZA',
         'ss': 'ssw_ZA',
