@@ -21,6 +21,9 @@ setup(
     install_requires=[
         "Click",
         "SQLAlchemy",
+        "crontab",
+        "Django",
+        "psycopg2"
     ],
     entry_points='''
         [console_scripts]
