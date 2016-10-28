@@ -364,7 +364,7 @@ class Migrator(object):
             # Setup a seed identity transaction:
             transactions['seed_identity'] = self.seed_identity.start_transaction()
 
-            if dmsisdn is not None and cmsisdn == dmsisdn:
+            if dmsisdn is not None and cmsisdn != dmsisdn:
                 # This person was registered by a 3rdparty, check if they are already in the system.
                 device_identity = self.seed_identity.lookup_identity_with_msdisdn(dmsisdn)
                 if device_identity is None:
