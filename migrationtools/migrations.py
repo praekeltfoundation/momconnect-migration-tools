@@ -392,6 +392,7 @@ class Migrator(object):
                 self.echo(" Failed")
                 msg = "Failed get vumi contact for nurse ref: {0}, msisdn {1}:".format(registration_id, cmsisdn)
                 self.echo(msg, err=True)
+                Migrator.rollback_all_transactions(transactions)
                 continue
 
             consent = vumi_contact['json']['extra'].get('consent', False)
