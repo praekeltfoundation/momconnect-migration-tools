@@ -494,6 +494,7 @@ class Migrator(object):
             old_messageset_name = subscription[ms_cols.short_name]
             created_at = subscription[sub_cols.created_at]
             updated_at = subscription[sub_cols.updated_at]
+            existing_schedule_id = subscription[sub_cols.schedule_id]
             active = subscription[sub_cols.active]
 
             # Lookup if there is an existing Seed Identity for this msisdn.
@@ -569,7 +570,7 @@ class Migrator(object):
                 lang = transform_language_code(lang)
 
             # Lookup the messageset needed by this Subscription.
-            new_messageset_name = transform_messageset_name(old_messageset_name)
+            new_messageset_name = transform_messageset_name(old_messageset_name, existing_schedule_id)
             messageset = self.seed_sbm.lookup_messageset_with_name(new_messageset_name)
             if messageset is None:
                 # We didn't find the required message set.
