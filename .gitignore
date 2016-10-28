@@ -9,3 +9,4 @@ env
 .tox
 __pycache__
 .cache
+/ve/
