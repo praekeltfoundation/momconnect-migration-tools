@@ -392,10 +392,8 @@ class Migrator(object):
 
             if vumi_lang is None:
                 # We didn't find a language.
-                self.echo(" Failed")
-                self.echo("Could not determine a language for this nurseconnect registration", err=True)
-                Migrator.rollback_all_transactions(transactions)
-                break
+                self.echo("Could not find any language for nurse ref: {0}, default to English".format(registration_id))
+                vumi_lang = 'en'
 
             lang = transform_language_code(vumi_lang)
 
