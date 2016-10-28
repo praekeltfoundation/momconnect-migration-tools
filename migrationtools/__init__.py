@@ -89,3 +89,23 @@ def registrations(ctx, start, stop):
     STOP - the registration ID to stop the migration at (inclusive).
     """
     ctx.migrator.migrate_registrations(start=start, stop=stop, limit=ctx.migrator_options['limit'])
+
+
+@migrate.command(short_help="Migrate subscription records to Seed.")
+@click.option('--active_only', default=True, type=click.BOOL,
+              help="Migrate only active records.")
+@click.argument('start', type=click.INT, default=None, required=False)
+@click.argument('stop', type=click.INT, default=None, required=False)
+@pass_context
+def subscriptions(ctx, active_only, start, stop):
+    """This command goes through existing subscription records in the
+    ndoh-control database and migrates them to the Seed services.
+
+    You can provide two optional arguments:
+
+    \b
+    START - the registration ID to start the migration from (inclusive).
+    STOP - the registration ID to stop the migration at (inclusive).
+    """
+    ctx.migrator.migrate_subscriptions(active_only=active_only, start=start,
+                                       stop=stop, limit=ctx.migrator_options['limit'])

@@ -1,6 +1,8 @@
 import uuid
 from datetime import datetime
 
+from crontab import CronTab
+
 from . import databases
 
 
@@ -10,18 +12,60 @@ class ImproperlyConfigured(Exception):
 
 def transform_language_code(lang):
     return {
-        "zu": "zul_ZA",
-        "xh": "xho_ZA",
-        "af": "afr_ZA",
-        "en": "eng_ZA",
-        "nso": "nso_ZA",
-        "tn": "tsn_ZA",
-        "st": "sot_ZA",
-        "ts": "tso_ZA",
-        "ss": "ssw_ZA",
-        "ve": "ven_ZA",
-        "nr": "nbl_ZA"
+        'zu': 'zul_ZA',
+        'xh': 'xho_ZA',
+        'af': 'afr_ZA',
+        'en': 'eng_ZA',
+        'nso': 'nso_ZA',
+        'tn': 'tsn_ZA',
+        'st': 'sot_ZA',
+        'ts': 'tso_ZA',
+        'ss': 'ssw_ZA',
+        've': 'ven_ZA',
+        'nr': 'nbl_ZA'
     }[lang]
+
+
+def transform_messageset_name(name, schedule=None):
+    if name == 'accelerated':
+        if schedule == 1:
+            # old schedule id 1 = 7 times a week
+            return 'momconnect_prebirth.hw_full.6'
+        elif schedule == 3:
+            # old schedule id 3 = 2 times a week
+            return 'momconnect_prebirth.hw_full.1'
+        elif schedule == 4:
+            # old schedule id 4 = 3 times a week
+            return 'momconnect_prebirth.hw_full.3'
+        elif schedule == 5:
+            # old schedule id 5 = 4 times a week
+            return 'momconnect_prebirth.hw_full.4'
+        elif schedule == 6:
+            # old schedule id 6 = 5 times a week
+            return 'momconnect_prebirth.hw_full.5'
+
+    return {
+        'standard': 'momconnect_prebirth.hw_full.1',
+        'later': 'momconnect_prebirth.hw_full.2',
+        'baby1': 'momconnect_postbirth.hw_full.1',
+        'baby2': 'momconnect_postbirth.hw_full.2',
+        'miscarriage': 'loss_miscarriage.patient.1',
+        'stillbirth': 'loss_stillbirth.patient.1',
+        'subscription': 'momconnect_prebirth.patient.1',
+        'chw': 'momconnect_prebirth.hw_partial.1',
+        'babyloss': 'loss_babyloss.patient.1',
+        'nurseconnect': 'nurseconnect.hw_full.1',
+    }[name]
+
+
+def transform_schedule_to_cron(minute, hour, day_of_month, month_of_year, day_of_week):
+    return "%s %s %s %s %s" % (
+        minute,
+        hour,
+        day_of_month,
+        month_of_year,
+        day_of_week
+    )
 
 
 class Migrator(object):
@@ -138,16 +182,16 @@ class Migrator(object):
         return identity
 
     def migrate_registrations(self, start=None, stop=None, limit=None):
+        # Use these shortcuts to make the code a bit more readable.
+        reg_cols = self.ndoh_control.registration.c
+        ident_cols = self.seed_identity.identity.c
+
         migration_id = str(uuid.uuid4())
         migration_type = 'registration'
         self.echo('Starting registration migration ({0})'.format(migration_id))
         for registration in self.ndoh_control.get_registrations(start, stop, limit=limit):
             # Keep a record of all transactions started so they can all be rolled back on any error.
             transactions = {}
-
-            # Use these shortcuts to make the code a bit more readable.
-            reg_cols = self.ndoh_control.registration.c
-            ident_cols = self.seed_identity.identity.c
 
             registration_id = registration[reg_cols.id]
             self.echo("Migrating registration: {id} ...".format(id=registration_id), nl=False)
@@ -252,6 +296,243 @@ class Migrator(object):
             Migrator.commit_all_transactions(transactions)
             self.echo(" Completed")
         self.echo('Registation Migration completed')
+
+    def migrate_subscriptions(self, active_only=True, start=None, stop=None, limit=None):
+        # Use these shortcuts to make the code a bit more readable.
+        sub_cols = self.ndoh_control.subscription.c
+        ms_cols = self.ndoh_control.messageset.c
+        ident_cols = self.seed_identity.identity.c
+        sched_cols = self.seed_sbm.schedule.c
+
+        migration_id = str(uuid.uuid4())
+        migration_type = 'registration'
+        self.echo('Starting registration migration ({0})'.format(migration_id))
+        for subscription in self.ndoh_control.get_subscriptions(active_only, start, stop, limit=limit):
+            # Keep a record of all transactions started so they can all be rolled back on any error.
+            transactions = {}
+
+            sub_id = subscription[sub_cols.id]
+            self.echo("Starting migration of {id} ...".format(id=sub_id), nl=False)
+
+            # Get basic details from the sub record
+            msisdn = subscription[sub_cols.to_addr]
+            lang = subscription[sub_cols.lang]
+            old_messageset_name = subscription[ms_cols.short_name]
+            created_at = subscription[sub_cols.created_at]
+            updated_at = subscription[sub_cols.updated_at]
+            active = subscription[sub_cols.active]
+
+            # Lookup if there is an existing Seed Identity for this msisdn.
+            identity = self.seed_identity.lookup_identity_with_msdisdn(msisdn)
+
+            # Setup a seed identity transaction:
+            transactions['seed_identity'] = self.seed_identity.start_transaction()
+
+            if identity is None:
+                ident_lang = None
+                # Lookup Vumi Contact info for this msisdn.
+                vumi_id = subscription[sub_cols.contact_key]
+                vumi_contact = self.vumi_contacts.lookup_contact(vumi_id)
+
+                if vumi_contact is None:
+                    consent = False
+                    sa_id_no = None
+                    mom_dob = None
+                    source = None
+                    vumi_lang = None
+                else:
+                    consent = vumi_contact['json']['extra'].get('consent', False)
+                    sa_id_no = vumi_contact['json']['extra'].get('sa_id', False)
+                    mom_dob = vumi_contact['json']['extra'].get('dob', False)
+                    vumi_lang = vumi_contact['json']['extra'].get('language_choice', None)
+                    source = None
+
+                if vumi_lang is not None:
+                    lang_code = transform_language_code(vumi_lang)
+
+                # Create the Identity using the Vumi Data if available.
+                ident_data = self.prepare_new_identity_data(
+                    msisdn, migration_id, migration_type, operator_id=None, lang_code=lang_code,
+                    consent=consent, sa_id_no=sa_id_no, mom_dob=mom_dob, source=source,
+                    created_at=created_at, updated_at=datetime.utcnow())
+                try:
+                    identity_id = self.seed_identity.create_identity(ident_data)
+                except databases.DatabaseError as error:
+                    self.echo(" Failed")
+                    self.echo("Failed to create Seed Identity due to a database error:", err=True)
+                    self.echo(error.message, err=True)
+                    Migrator.rollback_all_transactions(transactions)
+                    break
+            else:
+                vumi_lang = None
+                ident_lang = identity[ident_cols.details].get('lang_code', None)
+                identity_id = identity[ident_cols.id]
+
+            if not lang:
+                # There was no language set for this sub, check other venues.
+                if vumi_lang is not None:
+                    lang = transform_language_code(vumi_lang)
+                if ident_lang is not None:
+                    # Identity language code should take preference.
+                    lang = ident_lang
+                if not lang:
+                    # We didn't find a fallback language.
+                    self.echo(" Failed")
+                    self.echo("Could not determine a language for this subscription", err=True)
+                    Migrator.rollback_all_transactions(transactions)
+                    break
+            else:
+                lang = transform_language_code(lang)
+
+            # Lookup the messageset needed by this Subscription.
+            new_messageset_name = transform_messageset_name(old_messageset_name)
+            messageset = self.seed_sbm.lookup_messageset_with_name(new_messageset_name)
+            if messageset is None:
+                # We didn't find the required message set.
+                self.echo(" Failed")
+                msg = "Could not load the required MessageSet ({0}) for this subscription"
+                msg = msg.format(new_messageset_name)
+                self.echo(msg, err=True)
+                Migrator.rollback_all_transactions(transactions)
+                break
+
+            ms_schedule = self.seed_sbm.lookup_schedule(messageset['default_schedule_id'])
+            if ms_schedule is None:
+                # We didn't find the required message set schedule.
+                self.echo(" Failed")
+                msg = "Could not load the required MessageSet Schedule (ID: {0}) for this subscription"
+                msg = msg.format(messageset['default_schedule_id'])
+                self.echo(msg, err=True)
+                Migrator.rollback_all_transactions(transactions)
+                break
+
+            # Setup subscription data.
+            metadata = {
+                'migrations': {
+                    migration_id: {
+                        'type': migration_type,
+                        'migrated_on': datetime.utcnow()
+                    }
+                }
+            }
+            subscription_data = {
+                'identity': identity_id,
+                'version': 1,
+                'next_sequence_number': subscription[sub_cols.next_sequence_number],
+                'lang': lang,
+                'active': active,
+                'completed': subscription[sub_cols.completed],
+                'schedule_id': ms_schedule['id'],
+                'process_status': subscription[sub_cols.process_status],
+                'metadata': metadata,
+                'messageset_id': messageset['id'],
+                'created_at': created_at,
+                'updated_at': updated_at,
+            }
+
+            cron_definition = transform_schedule_to_cron(
+                ms_schedule[sched_cols.minute], ms_schedule[sched_cols.hour],
+                ms_schedule[sched_cols.day_of_week], ms_schedule[sched_cols.month_of_year],
+                ms_schedule[sched_cols.day_of_week])
+
+            # Setup a Seed SBM transaction.
+            transactions['seed_sbm'] = self.seed_sbm.start_transaction()
+
+            # Create Seed Subscription.
+            try:
+                subscription_id = self.seed_sbm.create_subscription(subscription_data)
+            except databases.DatabaseError as error:
+                self.echo(" Failed")
+                self.echo("Failed to create Seed Subscription due to a database error:", err=True)
+                self.echo(error.message, err=True)
+                Migrator.rollback_all_transactions(transactions)
+                break
+
+            # Setup a Seed Scheduler transaction:
+            transactions['seed_scheduler'] = self.seed_scheduler.start_transaction()
+
+            # Create DJCelery CrontabSchedule.
+            entry = CronTab(cron_definition)
+            crontabschedule_data = {
+                'minute': entry.matchers.minute.input,
+                'hour': entry.matchers.hour.input,
+                'day_of_week': entry.matchers.weekday.input,
+                'day_of_month': entry.matchers.day.input,
+                'month_of_year': entry.matchers.month.input
+            }
+            try:
+                crontabschedule_id, cs_created = self.seed_scheduler.get_or_create_crontabschedule(crontabschedule_data)
+            except databases.DatabaseError as error:
+                self.echo(" Failed")
+                self.echo("Failed to create CrontabSchedule due to a database error:", err=True)
+                self.echo(error.message, err=True)
+                Migrator.rollback_all_transactions(transactions)
+                break
+
+            if cs_created:
+                # Create DJCelery PeriodicTask only if CrontabSchedule was created.
+                periodictask_data = {
+                    'name': "Run %s" % cron_definition,
+                    'task': 'seed_scheduler.scheduler.tasks.queue_tasks',
+                    'crontab_id': crontabschedule_id,
+                    'enabled': True,
+                    'args': '["crontab", %s]' % crontabschedule_id,
+                    'kwargs': '{}',
+                    'total_run_count': 0,
+                    'date_changed': datetime.utcnow(),
+                    'description': '',
+                }
+                try:
+                    self.seed_scheduler.create_periodictask(periodictask_data)
+                except databases.DatabaseError as error:
+                    self.echo(" Failed")
+                    self.echo("Failed to create PeriodicTask due to a database error:", err=True)
+                    self.echo(error.message, err=True)
+                    Migrator.rollback_all_transactions(transactions)
+                    break
+
+            # Setup Schedule data.
+            schedule_data = {
+                'frequency': None,
+                'triggered': 0,
+                'cron_definition': cron_definition,
+                'interval_definition': None,
+                'endpoint': '{base_url}/{subscription_id}/send'.format(
+                    base_url=self.config.SYSTEM['sbm-api-url'], subscription_id=subscription_id),
+                'auth_token': self.config.SYSTEM['scheduler-inbound-token'],
+                'payload': {},
+                'next_send_at': None,
+                'enabled': active,
+                'celery_cron_definition_id': crontabschedule_id,
+                'celery_interval_definition_id': None,
+                'created_at': created_at,
+                'updated_at': updated_at,
+            }
+
+            # Create Seed Schedule.
+            try:
+                schedule_id = self.seed_scheduler.create_schedule(schedule_data)
+            except databases.DatabaseError as error:
+                self.echo(" Failed")
+                self.echo("Failed to create Seed Schedule due to a database error:", err=True)
+                self.echo(error.message, err=True)
+                Migrator.rollback_all_transactions(transactions)
+                break
+
+            # Update Seed Subscription.
+            metadata['scheduler_schedule_id'] = schedule_id
+            try:
+                self.seed_sbm.update_subscription(subscription_id, metadata)
+            except databases.DatabaseError as error:
+                self.echo(" Failed")
+                self.echo("Failed to update Seed Subscription due to a database error:", err=True)
+                self.echo(error.message, err=True)
+                Migrator.rollback_all_transactions(transactions)
+                break
+
+            # No errors have occured so commit all transactions now.
+            Migrator.commit_all_transactions(transactions)
+            self.echo(" Completed")
 
     def full_migration(self, limit=None):
         # Migrate registrations
