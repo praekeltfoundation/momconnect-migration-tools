@@ -245,8 +245,11 @@ class SeedIdentity(Database):
         return self.execute(statement).fetchone()
 
     def lookup_identity_with_msdisdn(self, msisdn):
+        # This isn't great because it assumes addresses is always this object where
+        # in practice it might have other, inactive or non default addresses.
+        msisdn_obj = {"addresses": {"msisdn": {msisdn: {"default": True}}}}
         statement = select([self.identity])\
-            .where(self.identity.c.details[('addresses', 'msisdn', msisdn)] != null())
+            .where(self.identity.c.details.contains(msisdn_obj))
         result = self.execute(statement)
         rows = result.fetchall()
         count = len(rows)
