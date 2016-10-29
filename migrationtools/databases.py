@@ -8,7 +8,7 @@ from django.core.serializers.json import DjangoJSONEncoder
 from sqlalchemy import create_engine, MetaData
 from sqlalchemy.exc import StatementError, IntegrityError, DataError
 from sqlalchemy.sql import select
-from sqlalchemy.sql.expression import null, false
+from sqlalchemy.sql.expression import false
 
 
 def generate_random_string(length):
