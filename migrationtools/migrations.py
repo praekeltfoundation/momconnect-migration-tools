@@ -88,6 +88,8 @@ class Migrator(object):
                 self.config.DATABASES['seed-scheduler'])
             self.vumi_contacts = databases.VumiContacts(
                 self.config.DATABASES['vumi-contacts'])
+            self.helpdesk = databases.Helpdesk(
+                self.config.DATABASES['helpdesk'])
         except AttributeError:
             raise ImproperlyConfigured("Invalid or missing database configs.")
 
@@ -716,6 +718,60 @@ class Migrator(object):
                 self.echo(error.message, err=True)
                 Migrator.rollback_all_transactions(transactions)
                 break
+
+            # No errors have occured so commit all transactions now.
+            Migrator.commit_all_transactions(transactions)
+            self.echo(" Completed")
+
+    def migrate_helpdesk(self):
+        ident_cols = self.seed_identity.identity.c
+
+        for identity in self.seed_identity.get_all_identities():
+            # Keep a record of all transactions started so they can all be rolled back on any error.
+            transactions = {}
+
+            uuid = identity[ident_cols.id]
+            self.echo("Starting migration of {id} ...".format(id=uuid), nl=False)
+
+            lang = identity[ident_cols.details].get('lang_code', 'eng_ZA')
+            # casepro is expecting 639-2 code
+            lang, _, _ = lang.partition('_')
+            addresses = identity[ident_cols.details]['addresses']
+            urns = []
+            for scheme, address in addresses.items():
+                scheme_addresses = []
+                for urn, details in address.items():
+                    if 'optedout' in details and details['optedout'] is True:
+                        # Skip opted out URNs
+                        continue
+                    if 'default' in details and details['default'] is True:
+                        # If a default is set for the scheme then only store the default
+                        scheme_addresses = [urn]
+                        break
+                    scheme_addresses.append(urn)
+                for value in scheme_addresses:
+                    if scheme == "msisdn":
+                        scheme = "tel"
+                    urns.append("%s:%s" % (scheme, value))
+
+            contact_details = {
+                'uuid': uuid,
+                'language': lang,
+                'org_id': 1,  # hard default to 1
+                'name': None,
+                'fields': {},
+                'urns': urns,
+                'is_blocked': False,
+                'is_stub': False,
+                'is_active': True,
+                'is_stopped': False,
+                'created_on': datetime.utcnow(),
+            }
+
+            # Setup a Helpdesk.
+            transactions['helpdesk'] = self.helpdesk.start_transaction()
+
+            self.helpdesk.create_contact(**contact_details)
 
             # No errors have occured so commit all transactions now.
             Migrator.commit_all_transactions(transactions)

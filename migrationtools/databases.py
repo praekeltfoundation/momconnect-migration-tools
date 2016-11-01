@@ -278,6 +278,10 @@ class SeedIdentity(Database):
             .values(**identity_data)
         return self.execute(statement)
 
+    def get_all_identities(self):
+        statement = select([self.identity]).order_by(self.identity.c.created_at)
+        return self.connection.execute(statement)
+
 
 class SeedSBM(Database):
 
@@ -360,3 +364,13 @@ class VumiContacts(Database):
         statement = select([self.contact])\
             .where(self.contact.c.msisdn == msisdn)
         return self.execute(statement).fetchone()
+
+
+class Helpdesk(Database):
+
+    def _setup_tables(self, meta):
+        self.contact = meta.tables['contacts_contact']
+
+    def create_contact(self, **kwargs):
+        statement = self.contact.insert().values(**kwargs)
+        return self.execute(statement).inserted_primary_key[0]

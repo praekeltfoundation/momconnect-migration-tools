@@ -126,3 +126,11 @@ def subscriptions(ctx, active_only, start, stop):
     """
     ctx.migrator.migrate_subscriptions(active_only=active_only, start=start,
                                        stop=stop, limit=ctx.migrator_options['limit'])
+
+
+@migrate.command(short_help="Sync helpdesk contacts form Seed.")
+@click.argument('start', type=click.INT, default=None, required=False)
+@click.argument('stop', type=click.INT, default=None, required=False)
+@pass_context
+def helpdesk(ctx, start, stop):
+    ctx.migrator.migrate_helpdesk()
