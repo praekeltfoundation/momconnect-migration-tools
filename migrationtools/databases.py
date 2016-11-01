@@ -279,7 +279,7 @@ class SeedIdentity(Database):
         return self.execute(statement)
 
     def get_all_identities(self):
-        statement = select([self.identity]).order_by(self.identity.c.created_at).limit(10)
+        statement = select([self.identity]).order_by(self.identity.c.created_at)
         return self.connection.execute(statement)
 
 
