@@ -848,7 +848,6 @@ class Migrator(object):
                 'is_stub': False,
                 'is_active': True,
                 'is_stopped': False,
-                'created_on': datetime.utcnow(),
             }
 
             # Setup a Helpdesk transaction.
