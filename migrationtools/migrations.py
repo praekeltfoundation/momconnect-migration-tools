@@ -866,14 +866,6 @@ class Migrator(object):
             Migrator.commit_all_transactions(transactions)
             self.echo(" Completed")
 
-        task_time = datetime.utcnow()
-        task_data = {
-            'started_on': task_time,
-            'last_successfully_started_on': task_time,
-            'ended_on': task_time,
-        }
-        self.helpdesk.update_taskstate('contact-pull', task_data)
-
     def full_migration(self, limit=None):
         # Migrate registrations
         self.migrate_registrations(limit=10)
