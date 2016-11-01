@@ -768,7 +768,7 @@ class Migrator(object):
                 'created_on': datetime.utcnow(),
             }
 
-            # Setup a Helpdesk.
+            # Setup a Helpdesk transaction.
             transactions['helpdesk'] = self.helpdesk.start_transaction()
 
             self.helpdesk.create_contact(**contact_details)
