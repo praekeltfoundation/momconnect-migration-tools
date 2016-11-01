@@ -279,7 +279,7 @@ class SeedIdentity(Database):
         return self.execute(statement)
 
     def get_all_identities(self):
-        statement = select([self.identity]).order_by(self.identity.c.created_at)
+        statement = select([self.identity]).order_by(self.identity.c.created_at).limit(10)
         return self.connection.execute(statement)
 
 
@@ -370,6 +370,13 @@ class Helpdesk(Database):
 
     def _setup_tables(self, meta):
         self.contact = meta.tables['contacts_contact']
+        self.taskstate = meta.tables['orgs_taskstate']
+
+    def update_taskstate(self, name, task_data):
+        statement = self.taskstate.update()\
+            .where(self.taskstate.c.task_key == name)\
+            .values(**task_data)
+        return self.execute(statement)
 
     def create_contact(self, **kwargs):
         statement = self.contact.insert().values(**kwargs)

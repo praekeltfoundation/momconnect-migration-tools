@@ -771,11 +771,32 @@ class Migrator(object):
             # Setup a Helpdesk transaction.
             transactions['helpdesk'] = self.helpdesk.start_transaction()
 
-            self.helpdesk.create_contact(**contact_details)
+            try:
+                self.helpdesk.create_contact(**contact_details)
+            except databases.DatabaseError as error:
+                if 'duplicate key value violates unique constraint "contacts_contact_uuid_key"' in error.message:
+                    self.echo('Exists already')
+                    Migrator.rollback_all_transactions(transactions)
+                    continue
+
+                else:
+                    self.echo(" Failed")
+                    self.echo("Failed to create Contact due to a database error:", err=True)
+                    self.echo(error.message, err=True)
+                    Migrator.rollback_all_transactions(transactions)
+                    break
 
             # No errors have occured so commit all transactions now.
             Migrator.commit_all_transactions(transactions)
             self.echo(" Completed")
+
+        task_time = datetime.utcnow()
+        task_data = {
+            'started_on': task_time,
+            'last_successfully_started_on': task_time,
+            'ended_on': task_time,
+        }
+        self.helpdesk.update_taskstate('contact-pull', task_data)
 
     def full_migration(self, limit=None):
         # Migrate registrations
