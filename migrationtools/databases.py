@@ -8,7 +8,7 @@ from django.core.serializers.json import DjangoJSONEncoder
 from sqlalchemy import create_engine, MetaData
 from sqlalchemy.exc import StatementError, IntegrityError, DataError
 from sqlalchemy.sql import select
-from sqlalchemy.sql.expression import false
+from sqlalchemy.sql.expression import false, true
 
 
 def generate_random_string(length):
@@ -372,6 +372,10 @@ class Helpdesk(Database):
         self.contact = meta.tables['contacts_contact']
         self.taskstate = meta.tables['orgs_taskstate']
 
+    def get_stubbed_contacts(self):
+        statement = select([self.contact]).where(self.contact.c.is_stub == true()).order_by(self.contact.c.id)
+        return self.connection.execute(statement)
+
     def update_taskstate(self, name, task_data):
         statement = self.taskstate.update()\
             .where(self.taskstate.c.task_key == name)\
@@ -381,3 +385,9 @@ class Helpdesk(Database):
     def create_contact(self, **kwargs):
         statement = self.contact.insert().values(**kwargs)
         return self.execute(statement).inserted_primary_key[0]
+
+    def update_contact(self, id, contact_data):
+        statement = self.contact.update()\
+            .where(self.contact.c.id == id)\
+            .values(**contact_data)
+        return self.execute(statement)

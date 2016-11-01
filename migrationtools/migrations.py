@@ -798,6 +798,83 @@ class Migrator(object):
         }
         self.helpdesk.update_taskstate('contact-pull', task_data)
 
+    def migrate_helpdesk_stubbed(self):
+        ident_cols = self.seed_identity.identity.c
+        cont_cols = self.helpdesk.contact.c
+
+        for contact in self.helpdesk.get_stubbed_contacts():
+            # Keep a record of all transactions started so they can all be rolled back on any error.
+            transactions = {}
+
+            uid = contact[cont_cols.id]
+            self.echo("Starting fix of {id} ...".format(id=uid), nl=False)
+
+            uuid = contact[cont_cols.uuid]
+            identity = self.seed_identity.lookup_identity(uuid)
+            if identity is None:
+                self.echo(" Failed")
+                self.echo("Could not load identity for uuid : {0}".format(uuid), err=True)
+                continue
+
+            lang = identity[ident_cols.details].get('lang_code', 'eng_ZA')
+            # casepro is expecting 639-2 code
+            lang, _, _ = lang.partition('_')
+            addresses = identity[ident_cols.details]['addresses']
+            urns = []
+            for scheme, address in addresses.items():
+                scheme_addresses = []
+                for urn, details in address.items():
+                    if 'optedout' in details and details['optedout'] is True:
+                        # Skip opted out URNs
+                        continue
+                    if 'default' in details and details['default'] is True:
+                        # If a default is set for the scheme then only store the default
+                        scheme_addresses = [urn]
+                        break
+                    scheme_addresses.append(urn)
+                for value in scheme_addresses:
+                    if scheme == "msisdn":
+                        scheme = "tel"
+                    urns.append("%s:%s" % (scheme, value))
+
+            contact_details = {
+                'uuid': uuid,
+                'language': lang,
+                'org_id': 1,  # hard default to 1
+                'name': None,
+                'fields': {},
+                'urns': urns,
+                'is_blocked': False,
+                'is_stub': False,
+                'is_active': True,
+                'is_stopped': False,
+                'created_on': datetime.utcnow(),
+            }
+
+            # Setup a Helpdesk transaction.
+            transactions['helpdesk'] = self.helpdesk.start_transaction()
+
+            try:
+                self.helpdesk.update_contact(uid, contact_details)
+            except databases.DatabaseError as error:
+                self.echo(" Failed")
+                self.echo("Failed to create Contact due to a database error:", err=True)
+                self.echo(error.message, err=True)
+                Migrator.rollback_all_transactions(transactions)
+                break
+
+            # No errors have occured so commit all transactions now.
+            Migrator.commit_all_transactions(transactions)
+            self.echo(" Completed")
+
+        task_time = datetime.utcnow()
+        task_data = {
+            'started_on': task_time,
+            'last_successfully_started_on': task_time,
+            'ended_on': task_time,
+        }
+        self.helpdesk.update_taskstate('contact-pull', task_data)
+
     def full_migration(self, limit=None):
         # Migrate registrations
         self.migrate_registrations(limit=10)
